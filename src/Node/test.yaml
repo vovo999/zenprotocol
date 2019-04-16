@@ -6,8 +6,7 @@ externalIp: null
 listen: true
 bind: "*:29555"
 seeds:
-  - 18.217.45.241:29555
-  - 18.224.187.36:29555
+  - 13.58.154.196:29555
 
 api:
   enabled: true
