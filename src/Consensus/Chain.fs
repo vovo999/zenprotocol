@@ -22,6 +22,9 @@ type ChainParameters =
         networkId:uint32;
         contractSacrificePerBytePerBlock:uint64
         versionExpiry:Timestamp.Timestamp
+        coinbaseMaturity:uint32
+        intervalLength:uint32
+        allocationCorrectionCap:byte
     }
 
 let mainParameters =
@@ -36,7 +39,10 @@ let mainParameters =
         genesisTime= new System.DateTime(2018,6,30,17,0,0,System.DateTimeKind.Utc) |> Infrastructure.Timestamp.fromDateTime // 1530378000000UL
         networkId=1000ul
         contractSacrificePerBytePerBlock=ContractSacrificePerBytePerBlock
-        versionExpiry= new System.DateTime(2019,9,1,0,0,0,System.DateTimeKind.Utc) |> Infrastructure.Timestamp.fromDateTime
+        versionExpiry=new System.DateTime(2019,2,1,0,0,0,System.DateTimeKind.Utc) |> Infrastructure.Timestamp.fromDateTime
+        intervalLength=10000ul
+        allocationCorrectionCap=15uy
+        coinbaseMaturity=100ul
     }
 
 let testParameters =
@@ -48,13 +54,16 @@ let testParameters =
         maxBlockWeight=1000_000_000I;
         sacrificePerByteBlock=1UL;
         genesisHashHash =
-            Hash.fromString "5488069e4be0551a3c886543845c332633731c536853209c2dbe04c035946490"
+            Hash.fromString "f313c6f13ce0f2b57d34b5bfb4bbb92a8978d9cbe04862249c6e4765f8518ac2"
             |> get
             |> Hash.computeOfHash
-        genesisTime=1535968146719UL
-        networkId=2016ul
+        genesisTime=1555425285367UL
+        networkId=2018ul
         contractSacrificePerBytePerBlock=ContractSacrificePerBytePerBlock
-        versionExpiry=new System.DateTime(2200,1,1,0,0,0,System.DateTimeKind.Utc) |> Infrastructure.Timestamp.fromDateTime
+        versionExpiry= new System.DateTime(2200,1,1,0,0,0,System.DateTimeKind.Utc) |> Infrastructure.Timestamp.fromDateTime
+        intervalLength=100ul
+        allocationCorrectionCap=5uy
+        coinbaseMaturity=10ul
     }
 
 let localGenesisHash = Hash.fromString "6d678ab961c8b47046da8d19c0de5be07eb0fe1e1e82ad9a5b32145b5d4811c7" |> get
@@ -76,3 +85,18 @@ let getChainParameters = function
     | Main -> mainParameters
     | Test -> testParameters
     | Local -> localParameters
+
+let private getPeriod blockNumber =
+    blockNumber / 800_000ul
+    |> int
+
+let private initialBlockReward = 50UL * 100_000_000UL
+
+let blockReward blockNumber (allocationPortion : byte) =
+    let allocation = 100UL - uint64 allocationPortion
+    
+    let initial = (initialBlockReward * allocation) / 100UL
+    initial >>> getPeriod blockNumber
+
+let blockAllocation (blockNumber:uint32) allocationPortion =
+    (uint64 initialBlockReward >>> getPeriod blockNumber) - (blockReward blockNumber allocationPortion)
