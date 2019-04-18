@@ -10,7 +10,7 @@ seeds:
 
 api:
   enabled: true
-  bind: 127.0.0.1:31567
+  bind: 127.0.0.1:21567
 
 miner:
   enabled: false
