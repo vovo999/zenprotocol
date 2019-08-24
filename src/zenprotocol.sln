@@ -85,6 +85,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "SerializationBenchmark", "S
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Wallet", "Wallet\Wallet.fsproj", "{289A59EB-D1D4-499F-87B9-F75B799829C0}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Tally", "Tally\Tally.fsproj", "{C8ADCBA4-6FA4-4E39-9330-85A73223233A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -127,6 +129,10 @@ Global
 		{BC871DA3-27D5-447D-A35E-D5DA8E8F9BC7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{BC871DA3-27D5-447D-A35E-D5DA8E8F9BC7}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{BC871DA3-27D5-447D-A35E-D5DA8E8F9BC7}.Release|Any CPU.Build.0 = Release|Any CPU
+        {C8ADCBA4-6FA4-4E39-9330-85A73223233A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C8ADCBA4-6FA4-4E39-9330-85A73223233A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C8ADCBA4-6FA4-4E39-9330-85A73223233A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C8ADCBA4-6FA4-4E39-9330-85A73223233A}.Release|Any CPU.Build.0 = Release|Any CPU
 		{F2AB0CFF-5137-4A1C-858A-D317181B29FE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{F2AB0CFF-5137-4A1C-858A-D317181B29FE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F2AB0CFF-5137-4A1C-858A-D317181B29FE}.Release|Any CPU.ActiveCfg = Release|Any CPU

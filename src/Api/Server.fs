@@ -468,6 +468,10 @@ let handleRequest chain client (request,reply) (templateCache : BlockTemplateCac
     | Post ("/addressdb/resync", _) ->
         AddressDB.resyncAccount client
         reply StatusCode.OK NoContent
+    | Get ("/tally/resync", _)
+    | Post ("/tally/resync", _) ->
+        Tally.resync client
+        reply StatusCode.OK NoContent
     | Get ("/blockchain/cgp", _) ->
         match Blockchain.getTip client with
         | Some (_,header) ->

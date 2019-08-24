@@ -194,6 +194,14 @@ let main argv =
         else
             Disposables.empty
             
+    use tallyActor =
+        if getChain config = Chain.Test then
+            if wipeFull then Tally.Main.Full elif wipe then Tally.Main.Reset else Tally.Main.NoWipe
+            |> Tally.Main.main dataPath busName chain
+            |> Disposables.toDisposable
+        else
+            Disposables.empty
+                
     use blockchainActor = Blockchain.Main.main dataPath chainParams busName wipe
 
     use networkActor =
@@ -210,6 +218,7 @@ let main argv =
             |> Disposables.toDisposable
         else
             Disposables.empty
+            
 
     use minerActor =
         if config.miner.enabled then

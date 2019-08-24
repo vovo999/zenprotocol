@@ -381,3 +381,34 @@ module AddressDB =
     let getContractHistory client args =
         GetContractHistory args
         |> send<ContractHistoryResponse> client
+        
+module Tally =
+
+
+    type Command =
+        | Resync
+        | Tally of uint32
+
+    type Request =
+        | GetWinner of uint32
+
+    let serviceName = "tally"
+
+    let resync client =
+        Resync
+        |> Command.send client serviceName
+
+    let syncInterval client args =
+        //TODO: change name
+        Tally args
+        |> Command.send client serviceName
+    
+    //pipe to blockchain actor
+    let setCGP client args =
+        Blockchain.setCGP client args
+
+    let private send<'a> client = Request.send<Request, Result<'a,string>> client serviceName
+
+    let getWinner client interval =
+        GetWinner interval
+        |> send<Option<Ballot>> client
