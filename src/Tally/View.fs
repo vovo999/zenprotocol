@@ -62,10 +62,10 @@ module Tally =
         
         let env =
             {
-                allocationCorrectionCap = chainParams.allocationCorrectionCap
-                lowerAllocationBound    = chainParams.lowerAllocationBound
+                coinbaseCorrectionCap   = Tally.allocationToCoinbaseRatio chainParams.allocationCorrectionCap
+                lowerCoinbaseBound      = Tally.allocationToCoinbaseRatio chainParams.upperAllocationBound
+                lastCoinbaseRatio       = Tally.allocationToCoinbaseRatio lastAllocation
                 lastFund                = lastFund
-                lastAllocation          = lastAllocation
             }
         
         if Tally.isEmpty view.tally then

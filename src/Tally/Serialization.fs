@@ -13,7 +13,7 @@ module Tally =
     let size = fun (tally:Tally.T) ->
         Map.size (fun (_, votes) -> 
             Byte.size + 
-            Amount.size votes) tally.allocation +
+            Amount.size votes) tally.coinbaseRatio +
         Map.size (fun ((recipient, spend), votes) -> 
             Recipient.size recipient + 
             List.size Spend.size spend + 
@@ -22,7 +22,7 @@ module Tally =
     let write (stream:Stream) = fun (tally:Tally.T) ->
         Map.write (fun stream (allocation, votes)->
             Byte.write stream allocation
-            Amount.write stream votes) stream tally.allocation
+            Amount.write stream votes) stream (tally.coinbaseRatio)
         Map.write (fun stream ((recipient, spend), votes)->
             Recipient.write stream recipient
             List.write Spend.write stream spend
@@ -30,7 +30,7 @@ module Tally =
 
     let read (stream:Stream) =
         {
-            allocation = Map.read (fun stream -> Byte.read stream, Amount.read stream) stream
+            coinbaseRatio = Map.read (fun stream -> Byte.read stream, Amount.read stream) stream
             payout = Map.read (fun stream -> Ballot.Payout.read stream, Amount.read stream) stream
         } : Tally.T
         

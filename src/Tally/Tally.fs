@@ -8,23 +8,29 @@ open Types
 open Checked
 open UtxoSet
 
+type Allocation = byte
+
+type CoinbaseRatio =
+    | CoinbaseRatio of byte
+
 type T =
     {
-        allocation : Map<byte, uint64>
-        payout     : Map<Recipient * Spend list, uint64>
+        coinbaseRatio : Map<byte, uint64>
+        payout        : Map<Recipient * Spend list, uint64>
     }
 
 type Env =
     {
-        allocationCorrectionCap : byte
-        lowerAllocationBound    : byte
-        lastAllocation          : byte
-        lastFund                : Fund
+        coinbaseCorrectionCap : CoinbaseRatio
+        lowerCoinbaseBound    : CoinbaseRatio
+        lastCoinbaseRatio     : CoinbaseRatio
+        lastFund              : Fund
     }
 
-let empty : T = {
-        allocation = Map.empty
-        payout = Map.empty
+let empty : T =
+    {
+        coinbaseRatio = Map.empty
+        payout        = Map.empty
     }
 
 let isEmpty = (=) empty
@@ -40,8 +46,25 @@ let liftNone (optRes : Option<Option<'a>>) : Option<Option<'a>> =
 let ignoreResult (x : Option<'a>) : Option<unit> =
     Option.map (fun _ -> ()) x
 
-let if' (b : bool) (x : Lazy<'a>) : Option<'a> =
-    option { if b then return x.Force() }
+let check (b : bool) : Option<unit> =
+    option { if b then return () }
+
+let (|<-) (x : Option<'a>) (y : 'b) : Option<'b> =
+    x |> Option.map (fun _ -> y)
+
+let (|<--) (x : Option<'a>) (y : Lazy<'b>) : Option<'b> =
+    x |> Option.map (fun _ -> y.Force())
+
+let ( *>) : Option<'a> -> Option<'b> -> Option<'b> =
+    FSharpx.Option.( *>)
+
+let allocationToCoinbaseRatio (allocation : Allocation) : CoinbaseRatio =
+    CoinbaseRatio (100uy - allocation)
+
+let coinbaseRatioToAllocation (CoinbaseRatio coinbaseRatio : CoinbaseRatio) : Allocation =
+    (100uy - coinbaseRatio)
+
+let getRatio (CoinbaseRatio x) = x
 
 let accumulate (key : 'a) (value : uint64) (map : Map<'a,uint64>) : Map<'a,uint64> =
     let defaultValue =
@@ -54,17 +77,32 @@ let accumulate (key : 'a) (value : uint64) (map : Map<'a,uint64>) : Map<'a,uint6
     else
         Map.add key newValue map
 
-let validateAllocation (env : Env) (vote : byte) : Option<byte> =
-    let delta = (uint16 env.lastAllocation * uint16 env.allocationCorrectionCap) / 100us |> byte
+let validateCoibaseRatio (env : Env) (CoinbaseRatio coinbaseRatio : CoinbaseRatio) : Option<CoinbaseRatio> =
     
-    let lowerBound = env.lowerAllocationBound
+    let lastCoinbaseRatio = env.lastCoinbaseRatio     |> getRatio |> uint16
+    let correctionCap     = env.coinbaseCorrectionCap |> getRatio |> uint16
+    let globalRatioMin    = env.lowerCoinbaseBound    |> getRatio
     
-    let allocationMin = if env.lastAllocation >= delta then env.lastAllocation - delta else lowerBound
+    let localRatioMin =
+        byte <| (lastCoinbaseRatio * correctionCap) / 100us
     
-    let allocationMax = env.lastAllocation + delta
+    let localRatioMax =
+        byte <| (lastCoinbaseRatio * 100us) / correctionCap
     
-    if' (allocationMin <= vote && vote <= allocationMax)
-        (lazy vote)
+    let ratioMin =
+        max globalRatioMin localRatioMin
+    
+    let ratioMax =
+        min 100uy localRatioMax
+    
+    check (ratioMin <= coinbaseRatio && coinbaseRatio <= ratioMax)
+    |<- CoinbaseRatio coinbaseRatio
+
+let validateAllocation env allocation =
+    Some allocation
+    |> Option.map allocationToCoinbaseRatio
+    |> Option.bind (validateCoibaseRatio env)
+    |> Option.map coinbaseRatioToAllocation
 
 // Iteratively remove the payout spends from the fund and check that it wasn't depleted
 let validatePayout (env : Env) ((_, spends) as vote : Recipient * List<Spend>) : Option<Recipient * List<Spend>> =
@@ -75,15 +113,14 @@ let validatePayout (env : Env) ((_, spends) as vote : Recipient * List<Spend>) :
                 Map.tryFind spend.asset fund
             
             let! updatedAmount =
-                if' (fundAmount >= spend.amount)
-                    (lazy (fundAmount - spend.amount))
+                check (fundAmount >= spend.amount)
+                |<-- lazy (fundAmount - spend.amount)
             
             return Map.add spend.asset updatedAmount fund
         }
     
     let checkNonZero (spend : Spend) : Option<unit> = 
-        if' (spend.amount > 0UL)
-            (lazy())
+        check (spend.amount > 0UL)
     
     let checkSpendableFunds : Option<unit> =
         spends
@@ -95,11 +132,14 @@ let validatePayout (env : Env) ((_, spends) as vote : Recipient * List<Spend>) :
         |> FSharpx.Option.mapM checkNonZero
         |> ignoreResult
     
-    option {
-        return! checkNonZeros
-        return! checkSpendableFunds
-        return vote
-    }
+    let checkSize : Option<unit> =
+        check (List.length spends <= 100)
+    
+    Some ()
+    *> checkNonZeros
+    *> checkSpendableFunds
+    *> checkSize
+    |<- vote
 
 let validateVote (env : Env) (vote : Ballot) : Option<Ballot> =
     option {
@@ -107,7 +147,7 @@ let validateVote (env : Env) (vote : Ballot) : Option<Ballot> =
             vote.allocation
             |> Option.map (validateAllocation env)
             |> liftNone    // *
-    
+        
         let! payout =
             vote.payout
             |> Option.map (validatePayout env)
@@ -133,9 +173,12 @@ let addVote (env : Env) (vote:Ballot) amount (tally:T) : T =
             |> Option.map (fun key -> accumulate key amount m)
             |> Option.defaultValue m
         
+        let voteCoinbaseRatio =
+            vote.allocation
+        
         return {
-            allocation = addToMap vote.allocation tally.allocation
-            payout     = addToMap vote.payout     tally.payout
+            coinbaseRatio = addToMap voteCoinbaseRatio tally.coinbaseRatio
+            payout        = addToMap vote.payout       tally.payout
         }
     }
     |> Option.defaultValue tally
@@ -188,7 +231,7 @@ let getWinner tally =
         None
     else 
         let allocation =
-            tally.allocation
+            tally.coinbaseRatio
             |> getAllocationResult
     
         let payout =
