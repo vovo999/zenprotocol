@@ -12,14 +12,12 @@ open UtxoSet
 
 type T =
     {
-        voteUtxoSet: Map<Outpoint, OutputStatus>
         tally: Tally.T
-        winner: Option<Ballot>
+        winner: Option<Winner>
     }
     
 
 let empty = {
-    voteUtxoSet = Map.empty
     tally = Tally.empty
     winner = None
 }
@@ -43,9 +41,10 @@ module Winner =
                  Tally.getWinner tally
 
 module Tally =
+    open Messaging.Services
     open Tally
 
-    let get dataAccess session view (chainParams:ChainParameters) voteUtxo interval =
+    let get dataAccess session view (chainParams:ChainParameters) interval =
         
         let lastFund =
             if interval <> 0ul then
@@ -56,8 +55,7 @@ module Tally =
         
         let lastAllocation =
             Winner.tryGet dataAccess session interval
-            |> Option.map (fun allocation -> allocation.allocation )
-            |> Option.defaultValue (Some 0uy)
+            |> Option.bind (fun allocation -> allocation.allocation )
             |> Option.defaultValue 0uy
         
         let env =
@@ -67,17 +65,21 @@ module Tally =
                 lastCoinbaseRatio       = Tally.allocationToCoinbaseRatio lastAllocation
                 lastFund                = lastFund
             }
+        let balance =
+            DataAccess.PKBalance.tryGet dataAccess session interval
+            |> Option.defaultValue Map.empty           
+        let allocation =
+            PKAllocation.tryGet dataAccess session interval
+            |> Option.defaultValue Map.empty
+        let payout =
+            PKPayout.tryGet dataAccess session interval
+            |> Option.defaultValue Map.empty
+        
         
         if Tally.isEmpty view.tally then
-            Tally.addUnspentVotes env voteUtxo
+            Tally.createTally env balance allocation payout
         else view.tally
         
-module VoteUtxoSet =
-    let get dataAccess session view interval =
-        if Map.isEmpty view.voteUtxoSet then
-            VoteUtxoSet.tryGet dataAccess session interval
-            |> Option.defaultValue view.voteUtxoSet
-        else view.voteUtxoSet
 
 let getWinner dataAccess session interval view =
     match Winner.tryGet dataAccess session interval with
@@ -87,17 +89,14 @@ let getWinner dataAccess session interval view =
         Tally.getWinner view.tally
 
 let show dataAccess session chainParams interval view =
-    
-    let voteUtxo = 
-        VoteUtxoSet.get dataAccess session view interval
-    
+
     let tally =
-        Tally.get dataAccess session view chainParams voteUtxo interval
+        Tally.get dataAccess session view chainParams interval
         
     let winner = getWinner dataAccess session interval view
     match winner with
     | Some winner ->
          Winner.put dataAccess session interval winner
     | None -> ()
-
-    {voteUtxoSet=voteUtxo; tally=tally; winner= winner}:T
+    
+    {tally=tally; winner= winner}:T

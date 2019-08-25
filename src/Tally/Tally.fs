@@ -8,15 +8,21 @@ open Types
 open Checked
 open UtxoSet
 
-type Allocation = byte
+type allocation = byte
+
+type payout = Recipient * Spend list
+
+type PK = Crypto.PublicKey
+
+type PKHash = Hash.Hash
 
 type CoinbaseRatio =
     | CoinbaseRatio of byte
 
 type T =
     {
-        coinbaseRatio : Map<byte, uint64>
-        payout        : Map<Recipient * Spend list, uint64>
+        coinbaseRatio : Map<CoinbaseRatio, uint64>
+        payout        : Map<payout, uint64>
     }
 
 type Env =
@@ -37,20 +43,15 @@ let isEmpty = (=) empty
 
 let option = FSharpx.Option.maybe
 
-let liftNone (optRes : Option<Option<'a>>) : Option<Option<'a>> =
-    match optRes with
-    | None          -> Some None
-    | Some (Some x) -> Some (Some x)
-    | Some None     -> None
+let private (>>=) = FSharpx.Option.(>>=)
 
-let ignoreResult (x : Option<'a>) : Option<unit> =
-    Option.map (fun _ -> ()) x
+let private (|@>) x f = Option.map f x
 
 let check (b : bool) : Option<unit> =
     option { if b then return () }
 
 let (|<-) (x : Option<'a>) (y : 'b) : Option<'b> =
-    x |> Option.map (fun _ -> y)
+    x |@> fun _ -> y
 
 let (|<--) (x : Option<'a>) (y : Lazy<'b>) : Option<'b> =
     x |> Option.map (fun _ -> y.Force())
@@ -58,24 +59,25 @@ let (|<--) (x : Option<'a>) (y : Lazy<'b>) : Option<'b> =
 let ( *>) : Option<'a> -> Option<'b> -> Option<'b> =
     FSharpx.Option.( *>)
 
-let allocationToCoinbaseRatio (allocation : Allocation) : CoinbaseRatio =
+let ignoreResult (x : Option<'a>) : Option<unit> =
+    x |<- ()
+
+let allocationToCoinbaseRatio (allocation : allocation) : CoinbaseRatio =
     CoinbaseRatio (100uy - allocation)
 
-let coinbaseRatioToAllocation (CoinbaseRatio coinbaseRatio : CoinbaseRatio) : Allocation =
+let coinbaseRatioToAllocation (CoinbaseRatio coinbaseRatio : CoinbaseRatio) : allocation =
     (100uy - coinbaseRatio)
 
 let getRatio (CoinbaseRatio x) = x
 
+let mapMapKeys f m = m |> Map.toSeq |> Seq.map (fun (k,x) -> (f k, x)) |> Map.ofSeq
+
 let accumulate (key : 'a) (value : uint64) (map : Map<'a,uint64>) : Map<'a,uint64> =
-    let defaultValue =
-        Map.tryFind key map
-        |> Option.defaultValue 0UL
-    let newValue = defaultValue + value
-    
-    if newValue = 0UL then
-        Map.remove key map
-    else
-        Map.add key newValue map
+    option {
+        let! oldValue = Map.tryFind key map
+        if value > 0UL
+            then return Map.add key (oldValue + value) map
+    } |> Option.defaultValue map
 
 let validateCoibaseRatio (env : Env) (CoinbaseRatio coinbaseRatio : CoinbaseRatio) : Option<CoinbaseRatio> =
     
@@ -94,18 +96,18 @@ let validateCoibaseRatio (env : Env) (CoinbaseRatio coinbaseRatio : CoinbaseRati
     
     let ratioMax =
         min 100uy localRatioMax
-    
+
     check (ratioMin <= coinbaseRatio && coinbaseRatio <= ratioMax)
     |<- CoinbaseRatio coinbaseRatio
 
 let validateAllocation env allocation =
     Some allocation
-    |> Option.map allocationToCoinbaseRatio
-    |> Option.bind (validateCoibaseRatio env)
-    |> Option.map coinbaseRatioToAllocation
+    |@> allocationToCoinbaseRatio
+    >>= validateCoibaseRatio env
+    |@> coinbaseRatioToAllocation
 
 // Iteratively remove the payout spends from the fund and check that it wasn't depleted
-let validatePayout (env : Env) ((_, spends) as vote : Recipient * List<Spend>) : Option<Recipient * List<Spend>> =
+let validatePayout (env : Env) ((_, spends) as vote : payout) : Option<payout> =
     
     let subtractSpend (fund : Fund) (spend : Spend) : Option<Fund> =
         option {
@@ -142,57 +144,58 @@ let validatePayout (env : Env) ((_, spends) as vote : Recipient * List<Spend>) :
     |<- vote
 
 let validateVote (env : Env) (vote : Ballot) : Option<Ballot> =
-    option {
-        let! allocation =
-            vote.allocation
-            |> Option.map (validateAllocation env)
-            |> liftNone    // *
-        
-        let! payout =
-            vote.payout
-            |> Option.map (validatePayout env)
-            |> liftNone    // *
-        
-        return {allocation=allocation; payout=payout}
-    }
-    // * Seperate failure from indifference:
-    //     If a field is None then it won't fail the vote validation,
-    //     but if it is (Some x) and x is invalid then the whole vote will be invalid.
-    //     The validation of each field will create a value of the Option<Option<t>> type
-    //     where the internal Option is for indifference and the external Option is for validation failure.
-    //     Binding both fields together will only affect the external Option, which is for validation -
-    //     so if one field fails both of them will fail but otherwise you'll just get back the original
-    //     values of the fields.
+    match vote with
+    | Allocation allocation ->
+        allocation
+        |> validateAllocation env
+        |@> Allocation
+    | Payout (pay,out) ->
+        (pay,out)
+        |> validatePayout env
+        |@> Payout
 
-let addVote (env : Env) (vote:Ballot) amount (tally:T) : T =
-    option {
-        let! vote = validateVote env vote
-        
-        let addToMap x m =
-            x
-            |> Option.map (fun key -> accumulate key amount m)
-            |> Option.defaultValue m
-        
-        let voteCoinbaseRatio =
-            vote.allocation
-        
-        return {
-            coinbaseRatio = addToMap voteCoinbaseRatio tally.coinbaseRatio
-            payout        = addToMap vote.payout       tally.payout
-        }
-    }
+let addVote (env : Env) (tally:T) (vote:Ballot) amount : T =
+    validateVote env vote >>= function
+    | Allocation allocation ->
+        let voteCoinbaseRatio = allocationToCoinbaseRatio allocation
+        Some { tally with coinbaseRatio = accumulate voteCoinbaseRatio amount tally.coinbaseRatio }
+    | Payout (pay,out) ->
+        let votePayout = (pay,out)
+        Some { tally with payout = accumulate votePayout amount tally.payout}
     |> Option.defaultValue tally
 
-let addOutputStatus (env : Env) (tally : T) (_ : Outpoint) (outputStatus : OutputStatus) : T =
-    match outputStatus with
-    | Unspent {lock = Vote (vote, _); spend = spend} when spend.asset = Asset.Zen ->
-        addVote env vote spend.amount tally
-    | _ ->
-        tally
+let integrateMaps (amounts : Map<'key1,uint64>) (keys : Map<'key1,'key2>) : Map<'key2,uint64> =
+    
+    let addToMap (optKey : Option<'a>) (amount : uint64) (m : Map<'a, uint64>) : Map<'a, uint64> =
+        optKey
+        |@> fun key -> accumulate key amount m
+        |> Option.defaultValue m
+    
+    let addAmount (acc : Map<'key2,uint64>) (oldKey : 'key1) (amount : uint64) : Map<'key2,uint64> =
+        keys
+        |> Map.tryFind oldKey
+        |> fun key -> addToMap key amount acc
+    
+    Map.fold addAmount Map.empty amounts
 
-let addUnspentVotes (env : Env) (utxos : Map<Outpoint, OutputStatus>) : T =
-    utxos
-    |> Map.fold (addOutputStatus env) empty
+let integrateBallots (balances : Map<PKHash, uint64>) (votes : Map<PK, 'a>) : Map<'a, uint64> =
+    votes
+    |> mapMapKeys (fun (Crypto.PublicKey pk) -> Hash.compute pk)
+    |> integrateMaps balances
+
+let mergeBallots (env : Env) (allocationVotes : Map<allocation, uint64>) (payoutVotes : Map<payout, uint64>) : T =
+    let allocationBallots     = mapMapKeys Allocation allocationVotes 
+    let payoutBallots         = mapMapKeys Payout     payoutVotes
+    let collect ballots tally = Map.fold (addVote env) tally ballots
+    
+    empty
+    |> collect allocationBallots
+    |> collect payoutBallots
+
+let createTally (env : Env) (balances : Map<PKHash, uint64>) (allocationBallots : Map<PK, allocation>) (payoutBallots : Map<PK, payout>) : T =
+    let allocationVotes = integrateBallots balances allocationBallots
+    let payoutVotes     = integrateBallots balances payoutBallots
+    mergeBallots env allocationVotes payoutVotes
 
 // Naive weighted median by sorting and searching (assumes the list of votes is nonempty) 
 let private weightedMedian (votes : seq<byte * uint64>) : byte =
@@ -232,10 +235,11 @@ let getWinner tally =
     else 
         let allocation =
             tally.coinbaseRatio
+            |> mapMapKeys coinbaseRatioToAllocation
             |> getAllocationResult
     
         let payout =
             tally.payout
             |> getPayoutResult
     
-        Some {allocation=allocation; payout=payout}:Ballot option
+        Some {allocation=allocation; payout=payout}

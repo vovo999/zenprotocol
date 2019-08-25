@@ -1,6 +1,5 @@
 module Tally.DataAccess
 
-open System.Text
 open Infrastructure
 open DataAccess
 open Consensus
@@ -11,7 +10,6 @@ open Blockchain.Serialization
 open Consensus.Serialization.Serialization
 
 
-let private getBytes str = Encoding.UTF8.GetBytes (str : string)
 
 [<Literal>]
 let DbVersion = 1
@@ -24,6 +22,7 @@ type T = {
     winner: Collection<Interval, Winner>
     funds: Collection<Interval, Fund>
     tip: SingleValue<Tip>
+    voteUtxo: Collection<Interval, VoteUtxo>
     dbVersion: SingleValue<int>
 }
 
@@ -41,6 +40,7 @@ let init databaseContext =
     let winner = Collection.create session "winners" VarInt.serialize Winner.serialize Winner.deserialize
     let funds = Collection.create session "funds" VarInt.serialize Fund.serialize Fund.deserialize
     let tip = SingleValue.create databaseContext "blockchain" Tip.serialize Tip.deserialize
+    let voteUtxo = Collection.create session "voteUtxo" VarInt.serialize VoteUtxo.serialize VoteUtxo.deserialize
     let dbVersion = SingleValue.create databaseContext "dbVersion" Version.serialize Version.deserialize
 
     match SingleValue.tryGet dbVersion session with
@@ -58,6 +58,7 @@ let init databaseContext =
         winner = winner
         funds = funds
         tip = tip
+        voteUtxo = voteUtxo
         dbVersion = dbVersion
     }
 
@@ -93,6 +94,17 @@ module PKAllocation =
     let truncate t = Collection.truncate t.allocationVoters
 
     let contains t = Collection.containsKey t.allocationVoters
+ 
+module VoteUtxoSet =
+    let get t = Collection.get t.voteUtxo
+
+    let tryGet t = Collection.tryGet t.voteUtxo
+    let put t = Collection.put t.voteUtxo
+
+    let delete t = Collection.delete t.voteUtxo
+    let truncate t = Collection.truncate t.voteUtxo
+
+    let contains t = Collection.containsKey t.voteUtxo
     
 module PKPayout =
     let get t = Collection.get t.payoutVoters

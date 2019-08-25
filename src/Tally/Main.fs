@@ -21,15 +21,6 @@ let private syncInterval (chainParams:ChainParameters) dataAccess session client
     | Some {header=blockHeader} ->
         let blockHash = Block.hash blockHeader
         Repository.sync dataAccess session chainParams blockHash blockHeader (Blockchain.getBlockHeader client >> Option.get) (Blockchain.getBlock client true >> Option.get)
-//        let myget errmsg x =
-//            try Option.get x
-//            with _ ->
-//                failwithf "myget : %s" errmsg
-//        
-//        let foo = myget "<<X>>" (Some "Y")
-//        let bar = myget (sprintf "<<%s>>" foo) None
-//        
-//        Repository.sync dataAccess session chainParams blockHash blockHeader (Blockchain.getBlockHeader client >> myget "<<A>>") (Blockchain.getBlock client true >> myget "<<B>>")
 
         eventX "Tally synced to block #{blockNumber} {blockHash}"
         >> setField "blockNumber" blockHeader.blockNumber
@@ -132,7 +123,6 @@ let main dataPath busName chain (wipe:Wipe) =
             |> Option.defaultValue 1ul
         
         let interval = CGP.getInterval chainParams blockNumber
-        printfn "interval %A bnumber %A" interval blockNumber        
         let view = View.show dataAccess session chainParams interval View.empty
         
         Session.commit session

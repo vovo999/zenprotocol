@@ -5,7 +5,7 @@ open Serialization
 open Serialization
 
 open Tally.Types
-open Ballot.Payout
+open Payout
 open Blockchain
 open Messaging.Services
 
@@ -22,7 +22,7 @@ module Tally =
     let write (stream:Stream) = fun (tally:Tally.T) ->
         Map.write (fun stream (allocation, votes)->
             Byte.write stream allocation
-            Amount.write stream votes) stream (tally.coinbaseRatio)
+            Amount.write stream votes) stream (tally.coinbaseRatio |> Tally.mapMapKeys Tally.getRatio)
         Map.write (fun stream ((recipient, spend), votes)->
             Recipient.write stream recipient
             List.write Spend.write stream spend
@@ -30,12 +30,12 @@ module Tally =
 
     let read (stream:Stream) =
         {
-            coinbaseRatio = Map.read (fun stream -> Byte.read stream, Amount.read stream) stream
-            payout = Map.read (fun stream -> Ballot.Payout.read stream, Amount.read stream) stream
+            coinbaseRatio = Map.read (fun stream -> Byte.read stream |> Tally.CoinbaseRatio, Amount.read stream) stream
+            payout = Map.read (fun stream -> Payout.read stream, Amount.read stream) stream
         } : Tally.T
         
-    let serialize = serialize size write
-    let deserialize = deserialize read
+    let serialize = Serialization.serialize size write
+    let deserialize = Serialization.deserialize read
 
 module Tip =
     let size _ =
@@ -54,24 +54,71 @@ module Tip =
             blockNumber = blockNumber
         }
 
-    let serialize = serialize size write
-    let deserialize = deserialize read
+    let serialize = Serialization.serialize size write
+    let deserialize = Serialization.deserialize read
 
 module Fund =
-    let size fund =
+    let size balance =
         Map.size (fun (asset, amount) -> 
             Asset.size asset + 
-            Amount.size amount) fund
+            Amount.size amount) balance
         
-    let write (stream:Stream) = fun (fund:Fund) ->
+    let write (stream:Stream) = fun (balance:Fund) ->
         Map.write (fun stream (asset, amount)->
                 Asset.write stream asset
-                Amount.write stream amount) stream fund
+                Amount.write stream amount) stream balance
     let read (stream:Stream) =
         Map.read (fun stream -> Asset.read stream, Amount.read stream) stream
         
-    let serialize = serialize size write
-    let deserialize = deserialize read
+    let serialize = Serialization.serialize size write
+    let deserialize = Serialization.deserialize read
+
+
+
+module PKBalance =
+    let size pkbalance =
+        Map.size (fun (_, balance) ->
+            Hash.size +
+            Amount.size balance) pkbalance
+    let write (stream:Stream) = fun (pkbalance:PKBalance) ->
+        Map.write (fun stream (pk, balance)->
+                Hash.write stream pk
+                Amount.write stream balance) stream pkbalance
+    let read (stream:Stream) =
+        Map.read (fun stream -> Hash.read stream, Amount.read stream) stream
+
+    let serialize = Serialization.serialize size write
+    let deserialize = Serialization.deserialize read
+    
+module PKAllocation =
+    let size pkAllocation =
+        Map.size (fun _ ->
+            PublicKey.size +
+            Byte.size ) pkAllocation
+    let write (stream:Stream) = fun (pkAllocation:PKAllocation) ->
+        Map.write (fun stream (pk, allocation)->
+                PublicKey.write stream pk
+                Byte.write stream allocation) stream pkAllocation
+    let read (stream:Stream) =
+        Map.read (fun stream -> PublicKey.read stream, Byte.read stream) stream
+
+    let serialize = Serialization.serialize size write
+    let deserialize = Serialization.deserialize read
+        
+module PKPayout =
+    let size pkPayout =
+        Map.size (fun (_,payout) ->
+            PublicKey.size +
+            Payout.size payout ) pkPayout
+    let write (stream:Stream) = fun (pkPayout:PKPayout) ->
+        Map.write (fun stream (pk, allocation)->
+                PublicKey.write stream pk
+                Payout.write stream allocation) stream pkPayout
+    let read (stream:Stream) =
+        Map.read (fun stream -> PublicKey.read stream, Payout.read stream) stream
+
+    let serialize = Serialization.serialize size write
+    let deserialize = Serialization.deserialize read
     
 module VoteUtxo =
     open Blockchain.Serialization
@@ -87,5 +134,5 @@ module VoteUtxo =
     let read (stream:Stream) =
         Map.read (fun stream -> Outpoint.read stream, OutputStatus.read stream) stream
         
-    let serialize = serialize size write
-    let deserialize = deserialize read
+    let serialize = Serialization.serialize size write
+    let deserialize = Serialization.deserialize read
