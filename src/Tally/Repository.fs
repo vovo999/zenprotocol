@@ -345,21 +345,16 @@ let addBlock dataAccess session (chainParams:ChainParameters) blockHash block =
     elif account.blockHash <> block.header.parent then
         failwithf "trying to add a block to account but account in different chain %A %A" (block.header.blockNumber) (account.blockNumber)
     else
-
-
         let interval = CGP.getInterval chainParams block.header.blockNumber
-
         //get from data the current fund
         let fund = getFund dataAccess session interval
-        
-        
         #if DEBUG
         
         #else
-            eventX "Tally adding block #{blockNumber} for interval #{interval}"
-            >> setField "blockNumber" block.header .blockNumber
-            >> setField "interval" interval
-            |> Log.info
+        eventX "Tally adding block #{blockNumber} for interval #{interval}"
+        >> setField "blockNumber" block.header .blockNumber
+        >> setField "interval" interval
+        |> Log.info
         #endif
 
         let transactions =
