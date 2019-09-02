@@ -58,9 +58,7 @@ let ``The dormant actor activates when given the signal to start the tally`` () 
      //EffectsWriter.publish (Messaging.Events.BlockAdded (Block.hash block.header, block))
      //|> ignore
 
+let ``A vote is only registered if VotingContract has commands "Payout" or "Allocation"`` () =
      
-
-
-
 
 

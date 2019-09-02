@@ -14,7 +14,7 @@ let ``should be`` (expected : 'a) (actual : 'a) : unit =
           then ()
           else failwithf "expected: %A, actual: %A" expected actual
 
-
+let genAsset (n : uint32) = Asset.defaultOf (ContractId (1u, n |> Infrastructure.BigEndianBitConverter.uint32ToBytes |> Hash.compute))
 
 [<Test>]
 let ``validateCoibaseRatio coinbase correction cap`` () =
@@ -172,11 +172,13 @@ let ``validatePayout tests`` () =
      validatePayout env vote
      |> ``should be`` (Some vote)
      
-     let env = { env with lastFund =
-          Map.empty
-          |> Map.add Asset.Zen 2UL
-          |> Map.add asset0 5UL
-          }
+     let env = {
+          env with
+               lastFund =
+               Map.empty
+               |> Map.add Asset.Zen 2UL
+               |> Map.add asset0 5UL
+     }
      
      let vote = (someone, [{asset=Asset.Zen; amount=1UL}])
      validatePayout env vote
@@ -194,62 +196,54 @@ let ``validatePayout tests`` () =
      validatePayout env vote
      |> ``should be`` None
 
-//[<Test>]
-//let ``validateVote tests`` () =
-//     
-//     let env = {
-//          coinbaseCorrectionCap = CoinbaseRatio 90uy
-//          lowerCoinbaseBound    = CoinbaseRatio 10uy
-//          lastCoinbaseRatio     = CoinbaseRatio 20uy
-//          lastFund                =
-//               Map.empty
-//               |> Map.add Asset.Zen 2UL
-//               |> Map.add asset0 5UL
-//          
-//     }
-//     
-//     let vote =
-//          { allocation = Some 80uy;
-//            payout     = None
-//          }
-//     validateVote env vote
-//     |> ``should be`` (Some vote)
-//     
-//     let vote =
-//          { allocation = None;
-//            payout     = Some (someone, [{asset=Asset.Zen; amount=1UL}; {asset=asset0; amount=5UL}])
-//          }
-//     validateVote env vote
-//     |> ``should be`` (Some vote)
-//     
-//     let vote =
-//          { allocation = Some 80uy;
-//            payout     = Some (someone, [{asset=Asset.Zen; amount=1UL}; {asset=asset0; amount=5UL}])
-//          }
-//     validateVote env vote
-//     |> ``should be`` (Some vote)
-//     
-//     let vote =
-//          { allocation = Some 81uy;
-//            payout     = Some (someone, [{asset=Asset.Zen; amount=1UL}; {asset=asset0; amount=5UL}])
-//          }
-//     validateVote env vote
-//     |> ``should be`` (Some vote)
-//     
-//     let vote =
-//          { allocation = Some 75uy;
-//            payout     = Some (someone, [{asset=Asset.Zen; amount=1UL}; {asset=asset0; amount=5UL}])
-//          }
-//     validateVote env vote
-//     |> ``should be`` None
-//     
-//     let vote =
-//          { allocation = Some 81uy;
-//            payout     = Some (someone, [{asset=Asset.Zen; amount=1UL}; {asset=asset0; amount=6UL}])
-//          }
-//     validateVote env vote
-//     |> ``should be`` None
-//     
-//     
+[<Test>]
+let ``validatePayout spend with 0 amount should not be accounted for`` () =
      
-// let addVote (env : Env) (vote:Ballot) amount (tally:T) : T
+     let env = {
+          coinbaseCorrectionCap = CoinbaseRatio 90uy
+          lowerCoinbaseBound    = CoinbaseRatio 10uy
+          lastCoinbaseRatio     = CoinbaseRatio 20uy
+          lastFund              = Map.empty
+               |> Map.add Asset.Zen 2UL
+               |> Map.add asset0 5UL
+     }
+     
+     let vote = (someone, [{asset=Asset.Zen; amount=0UL}])
+     validatePayout env vote
+     |> ``should be`` None
+     
+     let vote = (someone, [{asset=Asset.Zen; amount=0UL}; {asset=Asset.Zen; amount=1UL}])
+     validatePayout env vote
+     |> ``should be`` None
+     
+     let vote = (someone, [{asset=Asset.Zen; amount=1UL}; {asset=Asset.Zen; amount=0UL}])
+     validatePayout env vote
+     |> ``should be`` None
+
+[<Test>]
+let ``validatePayout spends length cannot be bigger than 100`` () =
+     
+     let env = {
+          coinbaseCorrectionCap = CoinbaseRatio 90uy
+          lowerCoinbaseBound    = CoinbaseRatio 10uy
+          lastCoinbaseRatio     = CoinbaseRatio 20uy
+          lastFund              =
+               List.fold (fun map n -> Map.add (genAsset (uint32 n)) 5UL map) Map.empty [1..400] 
+               
+     }
+     
+     let vote = (someone, [1..99] |> List.map (fun n -> {asset=genAsset (uint32 n); amount=1UL}))
+     validatePayout env vote
+     |> ``should be`` (Some vote)
+     
+     let vote = (someone, [1..100] |> List.map (fun n -> {asset=genAsset (uint32 n); amount=1UL}))
+     validatePayout env vote
+     |> ``should be`` (Some vote)
+     
+     let vote = (someone, [1..101] |> List.map (fun n -> {asset=genAsset (uint32 n); amount=1UL}))
+     validatePayout env vote
+     |> ``should be`` None
+     
+     let vote = (someone, [1..205] |> List.map (fun n -> {asset=genAsset (uint32 n); amount=1UL}))
+     validatePayout env vote
+     |> ``should be`` None
