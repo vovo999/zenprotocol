@@ -1,21 +1,3 @@
 module Tally.Tests.VotingContractCode
 
-let contractCode = """
-open Zen.Types
-open Zen.Base
-open Zen.Cost
-module RT = Zen.ResultT
-module Tx = Zen.TxSkeleton
-module C = Zen.Cost
-let name = "Voting Contract"
-let main txSkeleton _ contractId command sender messageBody wallet state =
-  RT.ok @ {
-    tx = txSkeleton;
-    message = None;
-    state = NoChange;
-  }
-let cf _ _ _ _ _ _ _ =
-    5
-    |> cast nat
-    |> C.ret
-"""
+let contractCode = "    open Zen.Types\nopen Zen.Base\nopen Zen.Cost\nmodule RT = Zen.ResultT\nmodule Tx = Zen.TxSkeleton\nmodule C = Zen.Cost\nlet name = \"Voting Contract\"\nlet main txSkeleton _ contractId command sender messageBody wallet state =\n  RT.ok @ {\n    tx = txSkeleton;\n    message = None;\n    state = NoChange;\n  }\nlet cf _ _ _ _ _ _ _ =\n    5\n    |> cast nat\n    |> C.ret"

@@ -5,6 +5,7 @@ FsCheck.NUnit
 FSharp.Compiler.Tools
 FSharp.Compatibility.OCaml
 FsBech32
+FsNetMQ
 Zulib
 zen_secp256k1_linux
 zen_secp256k1_osx
