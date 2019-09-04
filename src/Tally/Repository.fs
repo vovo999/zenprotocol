@@ -256,9 +256,9 @@ let findVotes dataAccess session interval chainParams blockNumber transactions =
                                       |> FsBech32.Base16.decode
                                       |> Option.defaultValue ""B
                         match getValidBallot chainParams blockNumber encoded with
-                        | Some (Allocation allocation),message ->
+                        | Some (Allocation allocation),message when command = "Allocation" ->
                             Some (Allocation allocation), Some message
-                        | Some (Payout (recipient,spends)),message ->
+                        | Some (Payout (recipient,spends)),message when command = "Payout" ->
                             Some (Payout (recipient,spends)),Some message
                         | _ -> None, None 
                     | _ -> None, None

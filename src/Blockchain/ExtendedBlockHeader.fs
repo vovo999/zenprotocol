@@ -70,8 +70,12 @@ let createGenesis blockHash (block:Block) =
         activeContractSetMerkleRoot = block.activeContractSetMerkleRoot
         commitments = block.commitments
     }
-
+#if DEBUG
+let create status prevBlock blockHash (block:Block) =
+#else
 let private create status prevBlock blockHash (block:Block) =
+#endif
+
     match prevBlock.chainWork with
     | None -> failwith "prevBlock doesn't have chainWork"
     | Some prevChainWork ->

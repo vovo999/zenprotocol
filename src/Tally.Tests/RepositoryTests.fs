@@ -11,6 +11,7 @@ open Consensus.Serialization.Serialization
 open Tally
 open Types
 open Tally.Tests.VotingContractCode
+open System.Text
 
 module ZRTypes = Zen.Types.Realized
 module ZETypes = Zen.Types.Extracted
@@ -22,12 +23,13 @@ let difficulty = 0x20fffffful
 let rlimit = 8000000u
 
 let result = new Infrastructure.Result.ResultBuilder<string>()
+let private getBytes str = Encoding.Default.GetBytes (str : string)
 let chainParams = Chain.testParameters
 
 let votingContractId = chainParams.votingContractId
 
 let payoutTx1 =
-    Transaction.fromHex "000000000101d7de65a96e830d3b86e65b31724486750950aca121bad967b2efe8d99febfb5a0002022017ba8c88eb030b31a0da51ec5fe7bbd08ff807943f57b4cc4a33de4aca37fca6007e0000012a05f36501000000010002016203032229522443cf166e28468c58a4719ce01eb2d9b5b656ecae6e959001bbe8c469d6b5fe2beae7319d1bfc23297e149f4a1bdd2257ac6542336f98ac30c4ed79d94be7492e3d1251166b4f65c364a07a3682ebb7aa5599b84ac25b8a66c4f204af02822200abbf8805a203197e4ad548e4eaa2b16f683c013e31d316f387ecf7adc65b3fb2065061796f7574010c02065061796f7574064c30323031333434646333343366306163366430643164356436653633383861396463343935666632333062363530353635343535663034306334616264353635633164333031303030303739095369676e61747572650c024230333232323935323234343363663136366532383436386335386134373139636530316562326439623562363536656361653665393539303031626265386334363909c97a583847355e9057dc1fbf6873d8b0806c6f26ca3da60a6c45865b38ea26821975d282b4711b4c850215712cf880fa19da3a4ccee63003fd52c1074cf7080542303363323764363361376139653263383532623736616565333866353165646430376630383961353366343362303837656535373831316162663631623139386239090c660fd5ac33e738bc3482dc6fc75cd3dc5adbe41cc527c64a47db09591f80795e2713094e24aee182e86b167ac0ea398d05e33dbdad1b4026136312e214799e0301020000000000000000000005"
+    Transaction.fromHex "000000000101ffae28b36d58304f685c8e7b30c6c47d44b6be457fc35ee52c3f391802e74d54000202209b95835b9af67bdc345c0ae879b93a58d0f3f90784c982a2da52fbd71d8700a3007e0000012a05f3480100000001000201620302b43a1cb4cb6472e1fcd71b237eb9c1378335cd200dd07536594348d9e450967e7cb3db0d3b466836eb754648b9653af9ce7016eec97eeef3dc1a503f8be6c32a419bf7197f83670c9c49fb75125100ac552ead13501817f13e74e038e272263102822200abbf8805a203197e4ad548e4eaa2b16f683c013e31d316f387ecf7adc65b3fb2065061796f7574010c02065061796f7574064c30323031333037353962303763613031636166386535323466633237393934366131653936616663333534366565356631666434613163666166363434373633633262343031303030303031095369676e61747572650c024230323961653962343965363032353939353833303266616236633962653333333737356664376164613732663131363433323138646366323365356633376563393209da6a1cbc8bf8ccc7a86798f0e95da563698d4dc7a06bd783875a305c26b95e6026c4353972b0fa9f924da550ffdd99bf96c020f5090c04a2c75b024f3af317904230326234336131636234636236343732653166636437316232333765623963313337383333356364323030646430373533363539343334386439653435303936376509405cf2cd5a12a4b6363f781628e7aa0590995f7bb7e18b4cbeae7cce0b631ef060d930c956d638967d6a0069543bf933e072f6ef0fc28298871b2cb0f0cc71e50301020000000000000000000005"
     |> Option.get
     |> Transaction.toExtended
 let payoutTx2 =
@@ -35,7 +37,7 @@ let payoutTx2 =
     |> Option.get
     |> Transaction.toExtended
 let allocationTx1=
-    Transaction.fromHex "000000000101dfd1a11c2ac8c5b404d2660586de78049f5f65790cd75a7f47ffd55c6ed451270002022017ba8c88eb030b31a0da51ec5fe7bbd08ff807943f57b4cc4a33de4aca37fca6007e0000012a05f1fd0100000001000201620303c27d63a7a9e2c852b76aee38f51edd07f089a53f43b087ee57811abf61b198b9f0145d90d8fe9bc32d38aacbded360bf4c7d678b7696ac7452fa40cb91b36f365c6c395e6fe445980811af284760842383de64efb4dd612a09287da5b8e929bb02816200abbf8805a203197e4ad548e4eaa2b16f683c013e31d316f387ecf7adc65b3fb20a416c6c6f636174696f6e010c02095369676e61747572650c0242303332323239353232343433636631363665323834363863353861343731396365303165623264396235623635366563616536653935393030316262653863343639091e1a89520ef501dc8a59ad93125102789486693f1563f069b8d2287f32cd53951b914edfa6d414cbbe31bc64b27d952ee42f48e5b4b33177d2bbca69df6ad62142303363323764363361376139653263383532623736616565333866353165646430376630383961353366343362303837656535373831316162663631623139386239096137f3521f298cc554bc639f54f3a461cbedcc685b2633c23ff6cf7de2630fb4011ca07e6eeeb7736c70bc167f4fcdc1a24d8b7c5a4a580f8a69a23dc5171b4d0a416c6c6f636174696f6e0604303130340301020000000000000000000005"
+    Transaction.fromHex "000000000101ffcbf18c70139a3911f2e8b9ee3ea3f08ba0efb017917cc49b1ec6bc776e09ea000202209b95835b9af67bdc345c0ae879b93a58d0f3f90784c982a2da52fbd71d8700a3007e0000012a0604be0100000001000201620302b43a1cb4cb6472e1fcd71b237eb9c1378335cd200dd07536594348d9e450967ec1a43df834ea046c46006a8ace82c9657d6f14a9914bb25e9f21fddcd3b9d2c629d80989244a19e9ae5a90c3e819e4cfac1fe96df2cf78f0dc83edb1f7635d9b02816200abbf8805a203197e4ad548e4eaa2b16f683c013e31d316f387ecf7adc65b3fb20a416c6c6f636174696f6e010c02095369676e61747572650c02423032396165396234396536303235393935383330326661623663396265333333373735666437616461373266313136343332313864636632336535663337656339320978e1799fc18ff700c722c66ea32212dff1c005bc7d09a3accac632edb226b0a36543eada461509cea73b33f41589ba2a7a566b7e18c15c14227d444a97996a91423032623433613163623463623634373265316663643731623233376562396331333738333335636432303064643037353336353934333438643965343530393637650999617399d295eae44f0c138c26436b5fb66101aa790f4d8d09d2cd90f818b2a657b62ba9c03b3176684eb6a754d345f41de9508ff27566f6d680cc809241a1270a416c6c6f636174696f6e0604303130340301020000000000000000000005"
     |> Option.get
     |> Transaction.toExtended
 let allocationTx2 =
@@ -73,11 +75,10 @@ let compiledVotingContract =
     lazy (Contract.load contractPath 100ul VotingContractCode.contractCode chainParams.votingContractId)
     //compile VotingContractCode.contractCode
 
-let executeVotingContract (txSkeleton : TxSkeleton.T) context messageBody =
+let executeVotingContract (txSkeleton : TxSkeleton.T) context messageBody command =
     result {
         let! contract = compiledVotingContract.Force()
         
-        let command = "Payout"
         
         let! (txSkel,_,_) = Contract.run contract txSkeleton context command Zen.Types.Main.sender.Anonymous messageBody [] None
         
@@ -151,16 +152,16 @@ let createValidMessageBody (ballot : Ballot) (interval : uint32) (keys : List<Cr
     
     createMessageBody command serBallot interval keys
 
-let executeValidVotingContract (ballot : Ballot) (interval : uint32) (keys : List<Crypto.KeyPair>) =
+let executeValidVotingContract (ballot : Ballot) (interval : uint32) (keys : List<Crypto.KeyPair>) command  =
     let context = { context0 with blockNumber = interval * chainParams.intervalLength + chainParams.snapshot + 1u }
-    executeVotingContract TxSkeleton.empty context (createValidMessageBody ballot interval keys)
+    executeVotingContract TxSkeleton.empty context (createValidMessageBody ballot interval keys) command 
 
-let executeVotingContractInContext (ballot : Ballot) (interval : uint32) (keys : List<Crypto.KeyPair>) context =
-    executeVotingContract TxSkeleton.empty context (createValidMessageBody ballot interval keys)
+let executeVotingContractInContext (ballot : Ballot) (interval : uint32) (keys : List<Crypto.KeyPair>) context command  =
+    executeVotingContract TxSkeleton.empty context (createValidMessageBody ballot interval keys) command 
 
-let executeVotingContractWithMessageBody (msgBody : ZData.data option) (interval : uint32) =
+let executeVotingContractWithMessageBody (msgBody : ZData.data option) (interval : uint32) command  =
     let context = { context0 with blockNumber = interval * chainParams.intervalLength + chainParams.snapshot + 1u }
-    executeVotingContract TxSkeleton.empty context msgBody
+    executeVotingContract TxSkeleton.empty context msgBody command 
 
 let ema : EMA.T =
     {
@@ -188,7 +189,7 @@ let ``add block in repository `` () =
                 {
                     version     = Version0
                     parent      = Hash.zero
-                    blockNumber = 1u
+                    blockNumber = 62291u
                     difficulty  = difficulty
                     commitments = Hash.zero
                     timestamp   = 1UL
@@ -198,7 +199,7 @@ let ``add block in repository `` () =
             witnessMerkleRoot           = Hash.zero
             activeContractSetMerkleRoot = Hash.zero
             commitments                 = []
-            transactions                = [payoutTx1;allocationTx1;allocationTx2]
+            transactions                = [allocationTx1]
         }
     let blockHash = Block.hash block.header
 
@@ -220,9 +221,11 @@ let ``a vote doesn't register if the VotingContract doesn't have neither of the 
     
     let keys = [Crypto.KeyPair.create(); Crypto.KeyPair.create(); Crypto.KeyPair.create(); Crypto.KeyPair.create()]
     
+    let command = "Banana"
+    
     let serBallot = Ballot.serialize ballot
-    let msgBody = createMessageBody "Banana"B serBallot interval keys
-    let res = executeVotingContractWithMessageBody msgBody interval
+    let msgBody = createMessageBody (getBytes command) serBallot interval keys
+    let res = executeVotingContractWithMessageBody msgBody interval command
     
     let ex = match res with | Ok (ex, _) -> ex | Error msg -> failwithf "Error: %s" msg
     
@@ -299,9 +302,11 @@ let ``a vote registers if the VotingContract has the "Payout" command.`` () =
     
     let keys = [Crypto.KeyPair.create(); Crypto.KeyPair.create(); Crypto.KeyPair.create(); Crypto.KeyPair.create()]
     
+    let command = "Payout"
+    
     let serBallot = Ballot.serialize ballot
-    let msgBody = createMessageBody "Payout"B serBallot interval keys
-    let res = executeVotingContractWithMessageBody msgBody interval
+    let msgBody = createMessageBody (getBytes command) serBallot interval keys
+    let res = executeVotingContractWithMessageBody msgBody interval command
     
     let ex = match res with | Ok (ex, _) -> ex | Error msg -> failwithf "Error: %s" msg
     
@@ -378,9 +383,11 @@ let ``a vote registers if the VotingContract has the "Allocation" command.`` () 
     
     let keys = [Crypto.KeyPair.create(); Crypto.KeyPair.create(); Crypto.KeyPair.create(); Crypto.KeyPair.create()]
     
+    let command = "Allocation"
+    
     let serBallot = Ballot.serialize ballot
-    let msgBody = createMessageBody "Allocation"B serBallot interval keys
-    let res = executeVotingContractWithMessageBody msgBody interval
+    let msgBody = createMessageBody (getBytes command) serBallot interval keys
+    let res = executeVotingContractWithMessageBody msgBody interval command
     
     let ex = match res with | Ok (ex, _) -> ex | Error msg -> failwithf "Error: %s" msg
     
@@ -457,9 +464,11 @@ let ``voting Payout with Allocation body`` () =
     
     let keys = [Crypto.KeyPair.create(); Crypto.KeyPair.create(); Crypto.KeyPair.create(); Crypto.KeyPair.create()]
     
+    let command = "Payout"
+    
     let serBallot = Ballot.serialize ballot
-    let msgBody = createMessageBody "Payout"B serBallot interval keys
-    let res = executeVotingContractWithMessageBody msgBody interval
+    let msgBody = createMessageBody (getBytes command) serBallot interval keys
+    let res = executeVotingContractWithMessageBody msgBody interval command
     
     let ex = match res with | Ok (ex, _) -> ex | Error msg -> failwithf "Error: %s" msg
     
@@ -536,9 +545,11 @@ let ``voting Allocation with Payout body`` () =
     
     let keys = [Crypto.KeyPair.create(); Crypto.KeyPair.create(); Crypto.KeyPair.create(); Crypto.KeyPair.create()]
     
+    let command = "Allocation"
+    
     let serBallot = Ballot.serialize ballot
-    let msgBody = createMessageBody "Allocation"B serBallot interval keys
-    let res = executeVotingContractWithMessageBody msgBody interval
+    let msgBody = createMessageBody (getBytes command) serBallot interval keys
+    let res = executeVotingContractWithMessageBody msgBody interval command
     
     let ex = match res with | Ok (ex, _) -> ex | Error msg -> failwithf "Error: %s" msg
     
@@ -604,73 +615,74 @@ let ``voting Allocation with Payout body`` () =
     |> Option.map ( fun _ -> failwith "invalid Payout vote was registered" )
     |> ignore
 
+[<Test>]
 let ``make sure the tally updates when it should`` () =
     
-    failwith "DAVID NEEDS TO IMPLEMENT IT"
-    
-    let context = { context0 with blockNumber = 105ul } // Testnet tally block 
-    
-    let tempDir () =
-        System.IO.Path.Combine
-            [| System.IO.Path.GetTempPath(); System.IO.Path.GetRandomFileName() |]
-    let dataPath = tempDir()
-    
-    let createBroker () =
-         FsNetMQ.Actor.create (fun shim ->
-            use poller = FsNetMQ.Poller.create ()
-            use emObserver = FsNetMQ.Poller.registerEndMessage poller shim
-    
-            use sbBroker = ServiceBus.Broker.create poller "test" None
-            use evBroker = EventBus.Broker.create poller "test" None
-    
-            FsNetMQ.Actor.signal shim
-            FsNetMQ.Poller.run poller
-        )
-    
-    let getActors () =
-        [
-            createBroker ()
-            Blockchain.Main.main dataPath chainParams "test" false
-            Tally.Main.main dataPath "test" Chain.Test Tally.Main.NoWipe
-        ]
-        |> List.rev
-        |> List.map Disposables.toDisposable
-        |> Disposables.fromList
-    
-    let databaseContext = Blockchain.DatabaseContext.createEmpty dataPath
-    use session = Blockchain.DatabaseContext.createSession databaseContext
-
-    let client = ServiceBus.Client.create "test"
-    
+//    let context = { context0 with blockNumber = 105ul } // Testnet tally block 
+//    
+//    let tempDir () =
+//        System.IO.Path.Combine
+//            [| System.IO.Path.GetTempPath(); System.IO.Path.GetRandomFileName() |]
+//    let dataPath = tempDir()
+//    
+//    let createBroker () =
+//         FsNetMQ.Actor.create (fun shim ->
+//            use poller = FsNetMQ.Poller.create ()
+//            use emObserver = FsNetMQ.Poller.registerEndMessage poller shim
+//    
+//            use sbBroker = ServiceBus.Broker.create poller "test" None
+//            use evBroker = EventBus.Broker.create poller "test" None
+//    
+//            FsNetMQ.Actor.signal shim
+//            FsNetMQ.Poller.run poller
+//        )
+//    
+//    let getActors () =
+//        [
+//            createBroker ()
+//            Blockchain.Main.main dataPath chainParams "test" false
+//            Tally.Main.main dataPath "test" Chain.Test Tally.Main.NoWipe
+//        ]
+//        |> List.rev
+//        |> List.map Disposables.toDisposable
+//        |> Disposables.fromList
+//    use actor = getActors ()
+//    
+//    let databaseContext = Blockchain.DatabaseContext.createEmpty dataPath
+//    use session = Blockchain.DatabaseContext.createSession databaseContext
+//
+//    let client = ServiceBus.Client.create "test"
+//    
     let acs =
         ActiveContractSet.empty
         |> ActiveContractSet.add votingContractId (compiledVotingContract.Force() |> function | Ok x -> x | _ -> failwith "no")
-    
-    let commitments =
-            Block.createCommitments Hash.zero Hash.zero (ActiveContractSet.root acs) []
-            |> MerkleTree.computeRoot
-    
-    let block =
-        {
-            header =
-                {
-                    version     = Version0
-                    parent      = Hash.zero
-                    blockNumber = context.blockNumber
-                    difficulty  = difficulty
-                    commitments = commitments
-                    timestamp   = context.timestamp
-                    nonce       = (0UL, 0UL)
-                }
-            txMerkleRoot                = Hash.zero
-            witnessMerkleRoot           = Hash.zero
-            activeContractSetMerkleRoot = ActiveContractSet.root acs
-            commitments                 = []
-            transactions                = []
-        }
-    
-    let exHeader = Blockchain.ExtendedBlockHeader.create Blockchain.ExtendedBlockHeader.MainChain Blockchain.ExtendedBlockHeader.empty (Block.hash block.header) block
-    
-    //Messaging.Services.Blockchain.bl
-    Blockchain.BlockHandler.addBlocks session exHeader Blockchain.ExtendedBlockHeader.empty
-    |> ignore
+    acs |> ignore
+    ()
+//    let commitments =
+//            Block.createCommitments Hash.zero Hash.zero (ActiveContractSet.root acs) []
+//            |> MerkleTree.computeRoot
+//    
+//    let block =
+//        {
+//            header =
+//                {
+//                    version     = Version0
+//                    parent      = Hash.zero
+//                    blockNumber = context.blockNumber
+//                    difficulty  = difficulty
+//                    commitments = commitments
+//                    timestamp   = context.timestamp
+//                    nonce       = (0UL, 0UL)
+//                }
+//            txMerkleRoot                = Hash.zero
+//            witnessMerkleRoot           = Hash.zero
+//            activeContractSetMerkleRoot = ActiveContractSet.root acs
+//            commitments                 = []
+//            transactions                = []
+//        }
+//    
+//    let exHeader = Blockchain.ExtendedBlockHeader.create Blockchain.ExtendedBlockHeader.MainChain Blockchain.ExtendedBlockHeader.empty (Block.hash block.header) block
+//    
+//    //Messaging.Services.Blockchain.bl
+//    Blockchain.BlockHandler.addBlocks session exHeader Blockchain.ExtendedBlockHeader.empty
+//    |> ignore

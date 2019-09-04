@@ -171,7 +171,11 @@ let private removeBlocks session (forkBlock:ExtendedBlockHeader.T) (tip:Extended
     }
 
 // Publish BlockAdded events for a chain from tip to fork block
+#if DEBUG
+let rec addBlocks session (forkBlock:ExtendedBlockHeader.T) (tip:ExtendedBlockHeader.T) =
+#else
 let rec private addBlocks session (forkBlock:ExtendedBlockHeader.T) (tip:ExtendedBlockHeader.T) =
+#endif
     effectsWriter {
         let blocks = getSubChain session forkBlock tip
 
