@@ -292,6 +292,169 @@ let ``a vote doesn't register if the VotingContract doesn't have neither of the 
     |> ignore
 
 [<Test>]
+let ``a vote payout doesn't register if outside of snapshot block`` () =
+    
+    let interval = 10u
+    
+    let context = { context0 with blockNumber = CGP.getSnapshotBlock chainParams interval - 1ul }
+    
+    let ballot = Payout (ContractRecipient votingContractId, [])
+    
+    let keys = [Crypto.KeyPair.create(); Crypto.KeyPair.create(); Crypto.KeyPair.create(); Crypto.KeyPair.create()]
+    
+    let command = "Payout"
+    
+    let serBallot = Ballot.serialize ballot
+    let msgBody = createMessageBody (getBytes command) serBallot interval keys
+    let res = executeVotingContractWithMessageBody msgBody interval command
+    
+    let ex = match res with | Ok (ex, _) -> ex | Error msg -> failwithf "Error: %s" msg
+    
+    let cgp : CGP.T =
+        {
+            allocation = 12uy
+            payout     = Some (PKRecipient Hash.zero, [ { asset=Asset.defaultOf votingContractId; amount=20UL } ])
+        }
+    
+    let acs =
+        ActiveContractSet.empty
+        |> ActiveContractSet.add votingContractId (compiledVotingContract.Force() |> function | Ok x -> x | _ -> failwith "no")
+    
+    let coinbaseTx = Block.getBlockCoinbase chainParams acs context.blockNumber [ex] Hash.zero (cgp:CGP.T)
+    
+    let commitments =
+            Block.createCommitments Hash.zero Hash.zero (ActiveContractSet.root acs) []
+            |> MerkleTree.computeRoot
+    
+    let block =
+        {
+            header =
+                {
+                    version     = Version0
+                    parent      = Hash.zero
+                    blockNumber = context.blockNumber
+                    difficulty  = difficulty
+                    commitments = commitments
+                    timestamp   = context.timestamp
+                    nonce       = (0UL, 0UL)
+                }
+            txMerkleRoot                = Hash.zero
+            witnessMerkleRoot           = Hash.zero
+            activeContractSetMerkleRoot = ActiveContractSet.root acs
+            commitments                 = []
+            transactions                = [coinbaseTx; ex]
+        }
+    
+    let tempDir () =
+        Path.Combine
+            [| Path.GetTempPath(); Path.GetRandomFileName() |]
+
+    let dataPath = tempDir()
+    let databaseContext = DataAccess.createContext dataPath
+    let dataAccess = DataAccess.init databaseContext
+    use session = DatabaseContext.createSession databaseContext
+    
+    { blockNumber = CGP.getSnapshotBlock chainParams interval; blockHash = Hash.zero }
+    |> DataAccess.Tip.put dataAccess session
+    
+    let blockHash = Block.hash block.header
+    Repository.addBlock dataAccess session chainParams blockHash block
+    
+    let pkalloc = PKAllocation.tryGet dataAccess session interval
+    pkalloc
+    |> Option.bind ( fun pka -> pka |> Map.toList |> List.tryHead )
+    |> Option.map ( fun _ -> failwith "invalid vote was registered" )
+    |> ignore
+    
+    let pkpayout = PKPayout.tryGet dataAccess session interval
+    pkpayout
+    |> Option.bind ( fun pkp -> pkp |> Map.toList |> List.tryHead )
+    |> Option.map ( fun _ -> failwith "invalid vote was registered" )
+    |> ignore
+
+[<Test>]
+let ``a vote allocation doesn't register if outside of snapshot block`` () =
+    
+    let interval = 10u
+    
+    let context = { context0 with blockNumber = CGP.getSnapshotBlock chainParams interval - 1ul }
+    
+    let ballot = Ballot.Allocation 10uy
+    
+    let keys = [Crypto.KeyPair.create(); Crypto.KeyPair.create(); Crypto.KeyPair.create(); Crypto.KeyPair.create()]
+    
+    let command = "Allocation"
+    
+    let serBallot = Ballot.serialize ballot
+    let msgBody = createMessageBody (getBytes command) serBallot interval keys
+    let res = executeVotingContractWithMessageBody msgBody interval command
+    
+    let ex = match res with | Ok (ex, _) -> ex | Error msg -> failwithf "Error: %s" msg
+    
+    let cgp : CGP.T =
+        {
+            allocation = 12uy
+            payout     = Some (PKRecipient Hash.zero, [ { asset=Asset.defaultOf votingContractId; amount=20UL } ])
+        }
+    
+    let acs =
+        ActiveContractSet.empty
+        |> ActiveContractSet.add votingContractId (compiledVotingContract.Force() |> function | Ok x -> x | _ -> failwith "no")
+    
+    let coinbaseTx = Block.getBlockCoinbase chainParams acs context.blockNumber [ex] Hash.zero (cgp:CGP.T)
+    
+    
+    let commitments =
+            Block.createCommitments Hash.zero Hash.zero (ActiveContractSet.root acs) []
+            |> MerkleTree.computeRoot
+    
+    let block =
+        {
+            header =
+                {
+                    version     = Version0
+                    parent      = Hash.zero
+                    blockNumber = context.blockNumber
+                    difficulty  = difficulty
+                    commitments = commitments
+                    timestamp   = context.timestamp
+                    nonce       = (0UL, 0UL)
+                }
+            txMerkleRoot                = Hash.zero
+            witnessMerkleRoot           = Hash.zero
+            activeContractSetMerkleRoot = ActiveContractSet.root acs
+            commitments                 = []
+            transactions                = [coinbaseTx; ex]
+        }
+    
+    let tempDir () =
+        Path.Combine
+            [| Path.GetTempPath(); Path.GetRandomFileName() |]
+
+    let dataPath = tempDir()
+    let databaseContext = DataAccess.createContext dataPath
+    let dataAccess = DataAccess.init databaseContext
+    use session = DatabaseContext.createSession databaseContext
+    
+    { blockNumber = CGP.getSnapshotBlock chainParams interval; blockHash = Hash.zero }
+    |> DataAccess.Tip.put dataAccess session
+    
+    let blockHash = Block.hash block.header
+    Repository.addBlock dataAccess session chainParams blockHash block
+    
+    let pkalloc = PKAllocation.tryGet dataAccess session interval
+    pkalloc
+    |> Option.bind ( fun pka -> pka |> Map.toList |> List.tryHead )
+    |> Option.map ( fun _ -> failwith "invalid vote was registered" )
+    |> ignore
+    
+    let pkpayout = PKPayout.tryGet dataAccess session interval
+    pkpayout
+    |> Option.bind ( fun pkp -> pkp |> Map.toList |> List.tryHead )
+    |> Option.map ( fun _ -> failwith "invalid vote was registered" )
+    |> ignore
+
+[<Test>]
 let ``a vote registers if the VotingContract has the "Payout" command.`` () =
     
     let interval = 10u
@@ -614,75 +777,3 @@ let ``voting Allocation with Payout body`` () =
     |> Option.bind ( fun pkp -> pkp |> Map.toList |> List.tryHead )
     |> Option.map ( fun _ -> failwith "invalid Payout vote was registered" )
     |> ignore
-
-[<Test>]
-let ``make sure the tally updates when it should`` () =
-    
-//    let context = { context0 with blockNumber = 105ul } // Testnet tally block 
-//    
-//    let tempDir () =
-//        System.IO.Path.Combine
-//            [| System.IO.Path.GetTempPath(); System.IO.Path.GetRandomFileName() |]
-//    let dataPath = tempDir()
-//    
-//    let createBroker () =
-//         FsNetMQ.Actor.create (fun shim ->
-//            use poller = FsNetMQ.Poller.create ()
-//            use emObserver = FsNetMQ.Poller.registerEndMessage poller shim
-//    
-//            use sbBroker = ServiceBus.Broker.create poller "test" None
-//            use evBroker = EventBus.Broker.create poller "test" None
-//    
-//            FsNetMQ.Actor.signal shim
-//            FsNetMQ.Poller.run poller
-//        )
-//    
-//    let getActors () =
-//        [
-//            createBroker ()
-//            Blockchain.Main.main dataPath chainParams "test" false
-//            Tally.Main.main dataPath "test" Chain.Test Tally.Main.NoWipe
-//        ]
-//        |> List.rev
-//        |> List.map Disposables.toDisposable
-//        |> Disposables.fromList
-//    use actor = getActors ()
-//    
-//    let databaseContext = Blockchain.DatabaseContext.createEmpty dataPath
-//    use session = Blockchain.DatabaseContext.createSession databaseContext
-//
-//    let client = ServiceBus.Client.create "test"
-//    
-    let acs =
-        ActiveContractSet.empty
-        |> ActiveContractSet.add votingContractId (compiledVotingContract.Force() |> function | Ok x -> x | _ -> failwith "no")
-    acs |> ignore
-    ()
-//    let commitments =
-//            Block.createCommitments Hash.zero Hash.zero (ActiveContractSet.root acs) []
-//            |> MerkleTree.computeRoot
-//    
-//    let block =
-//        {
-//            header =
-//                {
-//                    version     = Version0
-//                    parent      = Hash.zero
-//                    blockNumber = context.blockNumber
-//                    difficulty  = difficulty
-//                    commitments = commitments
-//                    timestamp   = context.timestamp
-//                    nonce       = (0UL, 0UL)
-//                }
-//            txMerkleRoot                = Hash.zero
-//            witnessMerkleRoot           = Hash.zero
-//            activeContractSetMerkleRoot = ActiveContractSet.root acs
-//            commitments                 = []
-//            transactions                = []
-//        }
-//    
-//    let exHeader = Blockchain.ExtendedBlockHeader.create Blockchain.ExtendedBlockHeader.MainChain Blockchain.ExtendedBlockHeader.empty (Block.hash block.header) block
-//    
-//    //Messaging.Services.Blockchain.bl
-//    Blockchain.BlockHandler.addBlocks session exHeader Blockchain.ExtendedBlockHeader.empty
-//    |> ignore

@@ -3,6 +3,7 @@ module Tally.Tests.TallyTests
 open Tally.Tally
 open Consensus.Types
 open Consensus
+open Consensus.Crypto
 open NUnit.Framework
 
 let someone = PKRecipient Hash.zero
@@ -247,3 +248,34 @@ let ``validatePayout spends length cannot be bigger than 100`` () =
      let vote = (someone, [1..205] |> List.map (fun n -> {asset=genAsset (uint32 n); amount=1UL}))
      validatePayout env vote
      |> ``should be`` None
+
+let genPk = PublicKey.fromString "02bc15ee2d0073ec3f9d0f9a61f63027e9d5b6202faed8792836c42cbdb3cd4423" |> Option.get
+let genPkHash = genPk |> PublicKey.hash 
+
+[<Test>]
+let ``validate Tally`` () =
+     
+     let assets = genAsset 100ul
+     
+     let env = {
+          coinbaseCorrectionCap = CoinbaseRatio 90uy
+          lowerCoinbaseBound    = CoinbaseRatio 10uy
+          lastCoinbaseRatio     = CoinbaseRatio 100uy
+          lastFund              =
+               List.fold (fun map n -> Map.add assets 500UL map) Map.empty [1..100] 
+               
+     }
+     
+     let balances =
+          Map.add (genPkHash) 50UL Map.empty
+     let allocationBallots =
+          Map.add (genPk ) 1uy Map.empty
+     let payoutBallots =
+          Map.add (genPk) (PKRecipient (genPk |> PublicKey.hash), [1] |> List.map (fun n -> {asset=assets; amount=1UL *(uint64 n)})) Map.empty
+     
+     let tally = Tally.Tally.createTally env (balances : Map<PKHash, uint64>) (allocationBallots : Map<PK, allocation>) (payoutBallots : Map<PK, payout>)
+     
+     let winner:Option<Winner> = Some {payout = Some (PKRecipient (genPk |> PublicKey.hash),[{asset=assets; amount=1UL}]); allocation = Some 1uy}
+     
+     Tally.Tally.getWinner tally
+     |> ``should be`` winner
