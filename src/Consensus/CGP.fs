@@ -28,7 +28,7 @@ let getInterval chainParams blockNumber =
     |> (+) 1u
 
 let getSnapshotBlock chainParams interval =
-    interval * (chainParams.snapshot)
+    (interval - 1u) * chainParams.intervalLength + chainParams.snapshot
 
 let private isIntervalBlock chainParams blockNumber =
     (blockNumber - 1ul) % chainParams.intervalLength = 0ul
