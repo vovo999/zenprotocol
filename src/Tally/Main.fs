@@ -13,7 +13,7 @@ open Logary.Message
 open Tally
 
 let private getFirstBlockNumber chainParams interval =
-    (chainParams * interval)
+    (chainParams * (interval-1u))
 
 
 let private syncInterval (chainParams:ChainParameters) dataAccess session client interval =
@@ -34,9 +34,11 @@ let private syncInterval (chainParams:ChainParameters) dataAccess session client
 let commandHandler (chainParams:ChainParameters) client command dataAccess session view =
     match command with
     | Resync ->
-        View.empty
+        Repository.reset dataAccess session
+        syncInterval chainParams dataAccess session client 630u
+
     | Tally interval ->
-        syncInterval chainParams dataAccess session client interval
+        View.show dataAccess session chainParams interval view 
 
 let tallyUpdate chainParams dataAccess session client block =
     if CGP.isTallyBlock chainParams block.header.blockNumber then

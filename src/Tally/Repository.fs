@@ -33,9 +33,8 @@ let option = FSharpx.Option.maybe
 
 let private getBytes str = Encoding.Default.GetBytes (str : string)
 
-let private getFinalBlock (chainParams: ChainParameters) blockNumber =
+let private getFinalBlockNumber (chainParams: ChainParameters) blockNumber =
     chainParams.intervalLength * CGP.getInterval chainParams blockNumber
-
 
 let private getFund dataAccess session interval =
         match DataAccess.Fund.tryGet dataAccess session interval with
@@ -43,10 +42,10 @@ let private getFund dataAccess session interval =
         | None -> Map.empty
 
 let private getVoteUtxo dataAccess session interval =
-        match DataAccess.VoteUtxoSet.tryGet dataAccess session interval with
-        | Some voteUtxo ->
-            voteUtxo
-        | None -> Map.empty
+        VoteUtxoSet.tryGet dataAccess session interval
+        |> Option.defaultValue
+               (VoteUtxoSet.tryGet dataAccess session (interval - 1u)
+                |> Option.defaultValue Map.empty)
 
 //let getOutputs dataAccess session view mode addresses : PointedOutput list =
 //    DataAccess.AddressOutpoints.get view dataAccess session addresses
@@ -113,7 +112,7 @@ let private handleFund dataAccess session interval adding output chainParams (fu
                     | Some amount ->
                             let total = op amount output.spend.amount
                             setFund total output.spend fund
-                    | None -> fund
+                    | None -> setFund output.spend.amount output.spend fund 
                 |> Fund.put dataAccess session interval
             | _ ->
                 ()
@@ -132,16 +131,20 @@ let mapPkOutputs validMaturity (utxos: Map<Outpoint,OutputStatus>) =
             | _ ->
                 None)
 
-let private addPKBalance dataAccess session interval chainParams outputs =
+let private addPKBalance dataAccess session interval chainParams =
+    
+    
     let pkBalance =
         PKBalance.tryGet dataAccess session interval
-        |> Option.defaultValue Map.empty
+        |> Option.defaultValue
+               (PKBalance.tryGet dataAccess session (interval - 1u)
+                |> Option.defaultValue Map.empty)
     
-    let balance address =
+    let getAmount address =
         pkBalance
         |> Map.tryFind address
         |> Option.defaultValue 0UL
-    
+        
     let validMaturity = (CGP.getSnapshotBlock chainParams interval) - chainParams.coinbaseMaturity
     
     let voteUtxo = 
@@ -153,9 +156,8 @@ let private addPKBalance dataAccess session interval chainParams outputs =
     |> List.iter (fun (address,_,amount) ->
         PKBalance.tryGet dataAccess session interval
         |> Option.defaultValue Map.empty
-        |> Map.add address ((balance address) + amount)
+        |> Map.add address ((getAmount address) + amount)
         |> PKBalance.put dataAccess session interval)
-
 
 let addAllocation dataAccess session interval pk allocation =
     let map =
@@ -345,7 +347,9 @@ let addBlock dataAccess session (chainParams:ChainParameters) blockHash block =
     elif account.blockHash <> block.header.parent then
         failwithf "trying to add a block to account but account in different chain %A %A" (block.header.blockNumber) (account.blockNumber)
     else
-        let interval = CGP.getInterval chainParams block.header.blockNumber
+        let blockNumber = block.header.blockNumber
+        let interval = CGP.getInterval chainParams blockNumber
+        printfn "interval:%A" interval
         //get from data the current fund
         let fund = getFund dataAccess session interval
         #if DEBUG
@@ -365,12 +369,11 @@ let addBlock dataAccess session (chainParams:ChainParameters) blockHash block =
         |> handleBlock (getUTXO dataAccess session interval) block
         |> VoteUtxoSet.put dataAccess session interval
         
-        
-        if block.header.blockNumber <= CGP.getSnapshotBlock chainParams interval || block.header.blockNumber = 1u then 
-            transactions
-            |> List.iter (fun (tx,_) ->
-               addPKBalance dataAccess session interval chainParams tx.outputs)
-        if block.header.blockNumber > CGP.getSnapshotBlock chainParams interval && block.header.blockNumber <= getFinalBlock chainParams block.header.blockNumber then
+        // map of PKHash to Balance or to Snapshot Balance
+        if blockNumber <= CGP.getSnapshotBlock chainParams interval then 
+           addPKBalance dataAccess session interval chainParams 
+        // map of PK to Ballots
+        if block.header.blockNumber > CGP.getSnapshotBlock chainParams interval && block.header.blockNumber <= getFinalBlockNumber chainParams block.header.blockNumber then
             transactions
             |> findVotes dataAccess session interval chainParams block.header.blockNumber
 
@@ -469,4 +472,9 @@ let init dataAccess session =
 let reset dataAccess session =
     DataAccess.Tip.put dataAccess session empty
 
-//    DataAccess.VoteUtxoSet.truncate dataAccess session
+    DataAccess.VoteUtxoSet.truncate dataAccess session
+    DataAccess.Fund.truncate dataAccess session
+    DataAccess.Winner.truncate dataAccess session
+    DataAccess.PKPayout.truncate dataAccess session
+    DataAccess.PKBalance.truncate dataAccess session
+    DataAccess.PKAllocation.truncate dataAccess session

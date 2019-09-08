@@ -6,6 +6,8 @@ module Option = Infrastructure.Option
 open Consensus
 open Types
 open Checked
+open Consensus.Crypto
+open Consensus.Serialization.Serialization
 open UtxoSet
 
 type allocation = byte
@@ -73,11 +75,8 @@ let getRatio (CoinbaseRatio x) = x
 let mapMapKeys f m = m |> Map.toSeq |> Seq.map (fun (k,x) -> (f k, x)) |> Map.ofSeq
 
 let accumulate (key : 'a) (value : uint64) (map : Map<'a,uint64>) : Map<'a,uint64> =
-    option {
-        let! oldValue = Map.tryFind key map
-        if value > 0UL
-            then return Map.add key (oldValue + value) map
-    } |> Option.defaultValue map
+    let oldValue = Map.tryFind key map |> Option.defaultValue 0UL
+    map |> if value > 0UL then Map.add key (oldValue + value) else id
 
 let validateCoibaseRatio (env : Env) (CoinbaseRatio coinbaseRatio : CoinbaseRatio) : Option<CoinbaseRatio> =
     
@@ -100,8 +99,13 @@ let validateCoibaseRatio (env : Env) (CoinbaseRatio coinbaseRatio : CoinbaseRati
     check (ratioMin <= coinbaseRatio && coinbaseRatio <= ratioMax)
     |<- CoinbaseRatio coinbaseRatio
 
+let validatePercentage (allocation : Allocation) : Option<Allocation> =
+    check (allocation <= 100uy)
+    |<- allocation
+
 let validateAllocation env allocation =
     Some allocation
+    >>= validatePercentage
     |@> allocationToCoinbaseRatio
     >>= validateCoibaseRatio env
     |@> coinbaseRatioToAllocation
@@ -180,7 +184,7 @@ let integrateMaps (amounts : Map<'key1,uint64>) (keys : Map<'key1,'key2>) : Map<
 
 let integrateBallots (balances : Map<PKHash, uint64>) (votes : Map<PK, 'a>) : Map<'a, uint64> =
     votes
-    |> mapMapKeys (fun (Crypto.PublicKey pk) -> Hash.compute pk)
+    |> mapMapKeys PublicKey.hash
     |> integrateMaps balances
 
 let mergeBallots (env : Env) (allocationVotes : Map<allocation, uint64>) (payoutVotes : Map<payout, uint64>) : T =
