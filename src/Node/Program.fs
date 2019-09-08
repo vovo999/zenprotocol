@@ -195,7 +195,7 @@ let main argv =
             Disposables.empty
             
     use tallyActor =
-        if getChain config = Chain.Test then
+        if getChain config <> Chain.Main then
             if wipeFull then Tally.Main.Full elif wipe then Tally.Main.Reset else Tally.Main.NoWipe
             |> Tally.Main.main dataPath busName chain
             |> Disposables.toDisposable
