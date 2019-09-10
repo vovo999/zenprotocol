@@ -5,7 +5,7 @@ open Types
 
 
 
-type DataAccess<'t, 'r> =
+type Accessor<'t, 'r> =
      | Get      of ('t -> 'r)
      | TryGet   of ('t option -> 'r)
      | Contains of (bool -> 'r)
@@ -13,16 +13,10 @@ type DataAccess<'t, 'r> =
      | Truncate of ('r)
      | Delete   of ('r)
 
-type FreeDA<'t, 'a> =
-     | Pure of 'a
-     | Free of (Interval * DataAccess<'t, FreeDA<'t,'a>>)
-
-
-
-module DataAccess =
+module Accessor =
     
-     let map (f : 'a -> 'b) (da : DataAccess<'t,'a>) : DataAccess<'t,'b> =
-          match da with
+     let map (f : 'a -> 'b) (acc : Accessor<'t,'a>) : Accessor<'t,'b> =
+          match acc with
           | Get      g      -> Get (f << g)
           | TryGet   g      -> TryGet (f << g)
           | Contains (p)    -> Contains (f << p)
@@ -30,84 +24,91 @@ module DataAccess =
           | Truncate (x)    -> Truncate (f x)
           | Delete   (x)    -> Delete (f x)
 
+type FreeAccessor<'t, 'a> =
+     | Pure of 'a
+     | Free of (Interval * Accessor<'t, FreeAccessor<'t,'a>>)
 
-
-let rec bind (f : 'a -> FreeDA<'t,'b>) (m : FreeDA<'t,'a>) : FreeDA<'t,'b> =
+let rec bind (f : 'a -> FreeAccessor<'t,'b>) (m : FreeAccessor<'t,'a>) : FreeAccessor<'t,'b> =
      match m with
      | Pure x             -> f x
-     | Free (interval, t) -> Free (interval, DataAccess.map (bind f) t)
+     | Free (interval, t) -> Free (interval, Accessor.map (bind f) t)
 
 let ret = Pure
 
-let join (mm : FreeDA<'t, FreeDA<'t,'a>>) : FreeDA<'t,'a> =
+let join (mm : FreeAccessor<'t, FreeAccessor<'t,'a>>) : FreeAccessor<'t,'a> =
      bind id mm
 
-let map (f : 'a -> 'b) (m : FreeDA<'t,'a>) : FreeDA<'t,'b> =
+let map (f : 'a -> 'b) (m : FreeAccessor<'t,'a>) : FreeAccessor<'t,'b> =
      bind (f >> ret) m
 
-let liftDA (interval : Interval) (da : DataAccess<'t,'a>) : FreeDA<'t, 'a> =
-    Free (interval, DataAccess.map Pure da)
+let liftAccessor (interval : Interval) (acc : Accessor<'t,'a>) : FreeAccessor<'t, 'a> =
+    Free (interval, Accessor.map Pure acc)
 
-type FreeDABuilder<'t>() =
+type FreeAccessorBuilder<'t>() =
     
-    member this.Bind(m : FreeDA<'t,'a>, f : 'a -> FreeDA<'t,'b>) : FreeDA<'t,'b> =
-         bind f m
-    
-    member this.Return(x : 'a) : FreeDA<'t,'a> =
-         Pure x
-    
-    member this.Combine(m1 : FreeDA<'t,'a>, m2 : FreeDA<'t,'a>) : FreeDA<'t,'a> =
-         m1 |> bind (fun _ -> m2)
-    
-    member this.Zero() : FreeDA<'t,unit> =
-         Pure ()
-    
-    member this.Delay(f) : FreeDA<'t,'a> =
-         f ()
+     member this.Bind(m : FreeAccessor<'t,'a>, f : 'a -> FreeAccessor<'t,'b>) : FreeAccessor<'t,'b> =
+          bind f m
+     
+     member this.Return(x : 'a) : FreeAccessor<'t,'a> =
+          Pure x
+     
+     member this.ReturnFrom(x : FreeAccessor<'t,'a>) : FreeAccessor<'t,'a> =
+          x
+     
+     member this.Combine(m1 : FreeAccessor<'t,'a>, m2 : FreeAccessor<'t,'a>) : FreeAccessor<'t,'a> =
+          m1 |> bind (fun _ -> m2)
+     
+     member this.Zero() : FreeAccessor<'t,unit> =
+          Pure ()
+     
+     member this.Delay(f) : FreeAccessor<'t,'a> =
+          f ()
 
-let freeDA<'t> = new FreeDABuilder<'t>()
+let freeAccessor<'t> = new FreeAccessorBuilder<'t>()
 
-let inline (=<<) f m = bind f m
-
-let inline (>>=) x f = bind f x
-
-let inline (<*>) f m = f >>= (fun f -> m >>= (fun x -> f x))
-
-let inline (<*|) f m = (<*>) f m
-
-let inline (|*>) m f = f <*> m
-
-let inline (<!>) f m = map f m
-
-let inline (<@|) f m = map f m
-
-let inline (|@>) m f = map f m
-
-let inline (>=>) f g = fun x -> f x >>= g
-
-let inline (<=<) g f = fun x -> f x >>= g
+module Operators =
+     
+     let inline (=<<) f m = bind f m
+     
+     let inline (>>=) x f = bind f x
+     
+     let inline (<*>) f m = f >>= (fun f -> m >>= (fun x -> f x))
+     
+     let inline (<*|) f m = (<*>) f m
+     
+     let inline (|*>) m f = f <*> m
+     
+     let inline (<!>) f m = map f m
+     
+     let inline (<@|) f m = map f m
+     
+     let inline (|@>) m f = map f m
+     
+     let inline (>=>) f g = fun x -> f x >>= g
+     
+     let inline (<=<) g f = fun x -> f x >>= g
 
 
 
 module Free =
      
-     let get (interval : Interval) : FreeDA<'t,'t> =
-          Get id |> liftDA interval
+     let get interval : FreeAccessor<'t, 't> =
+          Get id |> liftAccessor interval
      
-     let tryGet (interval : Interval) : FreeDA<'t,'t option> =
-          TryGet id |> liftDA interval
+     let tryGet interval : FreeAccessor<'t, 't option> =
+          TryGet id |> liftAccessor interval
      
-     let contains (interval : Interval) : FreeDA<'t,bool> =
-          Contains id |> liftDA interval
+     let contains interval : FreeAccessor<'t, bool> =
+          Contains id |> liftAccessor interval
      
-     let put (interval : Interval) (x : 't) : FreeDA<'t,unit> =
-          Put (x, ()) |> liftDA interval
+     let put interval (x : 't) : FreeAccessor<'t, unit> =
+          Put (x, ()) |> liftAccessor interval
      
-     let truncate (interval : Interval) : FreeDA<'t,unit> =
-          Truncate () |> liftDA interval
+     let truncate interval : FreeAccessor<'t, unit> =
+          Truncate () |> liftAccessor interval
      
-     let delete (interval : Interval) : FreeDA<'t,unit> =
-          Delete () |> liftDA interval
+     let delete interval : FreeAccessor<'t, unit> =
+          Delete () |> liftAccessor interval
 
 
 
@@ -118,9 +119,9 @@ module Compute =
      module private Tip =
           module T = Tip
           type   T = Tip
-          let rec compute (repo : DataAccess.T) (session : Session) (fda : FreeDA<T, 'r>) : 'r =
+          let rec compute (repo : DataAccess.T) (session : Session) (m : FreeAccessor<T, 'r>) : 'r =
                let compute = compute repo session
-               match fda with
+               match m with
                | Free (_, da) ->
                     match da with
                     | Get      g      -> T.get      repo session |> g |> compute
@@ -135,9 +136,9 @@ module Compute =
      module private PKBalance =
           module T = PKBalance
           type   T = PKBalance
-          let rec compute (repo : DataAccess.T) (session : Session) (fda : FreeDA<T, 'r>) : 'r =
+          let rec compute (repo : DataAccess.T) (session : Session) (m : FreeAccessor<T, 'r>) : 'r =
                let compute = compute repo session
-               match fda with
+               match m with
                | Free (interval, da) ->
                     match da with
                     | Get      g      -> T.get      repo session interval |> g |> compute
@@ -152,9 +153,9 @@ module Compute =
      module private PKAllocation =
           module T = PKAllocation
           type   T = PKAllocation
-          let rec compute (repo : DataAccess.T) (session : Session) (fda : FreeDA<T, 'r>) : 'r =
+          let rec compute (repo : DataAccess.T) (session : Session) (m : FreeAccessor<T, 'r>) : 'r =
                let compute = compute repo session
-               match fda with
+               match m with
                | Free (interval, da) ->
                     match da with
                     | Get      g      -> T.get      repo session interval |> g |> compute
@@ -169,9 +170,9 @@ module Compute =
      module private VoteUtxoSet =
           module T = VoteUtxoSet
           type   T = VoteUtxo
-          let rec compute (repo : DataAccess.T) (session : Session) (fda : FreeDA<T, 'r>) : 'r =
+          let rec compute (repo : DataAccess.T) (session : Session) (m : FreeAccessor<T, 'r>) : 'r =
                let compute = compute repo session
-               match fda with
+               match m with
                | Free (interval, da) ->
                     match da with
                     | Get      g      -> T.get      repo session interval |> g |> compute
@@ -186,9 +187,9 @@ module Compute =
      module private PKPayout =
           module T = PKPayout
           type   T = PKPayout
-          let rec compute (repo : DataAccess.T) (session : Session) (fda : FreeDA<T, 'r>) : 'r =
+          let rec compute (repo : DataAccess.T) (session : Session) (m : FreeAccessor<T, 'r>) : 'r =
                let compute = compute repo session
-               match fda with
+               match m with
                | Free (interval, da) ->
                     match da with
                     | Get      g      -> T.get      repo session interval |> g |> compute
@@ -203,9 +204,9 @@ module Compute =
      module private Fund =
           module T = Fund
           type   T = Fund
-          let rec compute (repo : DataAccess.T) (session : Session) (fda : FreeDA<T, 'r>) : 'r =
+          let rec compute (repo : DataAccess.T) (session : Session) (m : FreeAccessor<T, 'r>) : 'r =
                let compute = compute repo session
-               match fda with
+               match m with
                | Free (interval, da) ->
                     match da with
                     | Get      g      -> T.get      repo session interval |> g |> compute
@@ -220,9 +221,9 @@ module Compute =
      module private Winner =
           module T = Winner
           type   T = Winner
-          let rec compute (repo : DataAccess.T) (session : Session) (fda : FreeDA<T, 'r>) : 'r =
+          let rec compute (repo : DataAccess.T) (session : Session) (m : FreeAccessor<T, 'r>) : 'r =
                let compute = compute repo session
-               match fda with
+               match m with
                | Free (interval, da) ->
                     match da with
                     | Get      g      -> T.get      repo session interval |> g |> compute
@@ -241,3 +242,99 @@ module Compute =
      let PKPayout     = PKPayout     .compute
      let Fund         = Fund         .compute
      let Winner       = Winner       .compute
+
+module FreeDA =
+     
+     type AbstractDataAcces<'a> =
+          | Tip          of Accessor<Tip, 'a>
+          | PKBalance    of Accessor<PKBalance, 'a>
+          | PKAllocation of Accessor<PKAllocation, 'a>
+          | VoteUtxo     of Accessor<VoteUtxo, 'a>
+          | PKPayout     of Accessor<PKPayout, 'a>
+          | Fund         of Accessor<Fund, 'a>
+          | Winner       of Accessor<Consensus.Types.Winner, 'a>
+     
+     module AbstractDataAcces =
+          
+          let map (f : 'a -> 'b) (ada : AbstractDataAcces<'a>) : AbstractDataAcces<'b> =
+               match ada with
+               | Tip          acc -> Tip          <| Accessor.map f acc    
+               | PKBalance    acc -> PKBalance    <| Accessor.map f acc          
+               | PKAllocation acc -> PKAllocation <| Accessor.map f acc             
+               | VoteUtxo     acc -> VoteUtxo     <| Accessor.map f acc         
+               | PKPayout     acc -> PKPayout     <| Accessor.map f acc         
+               | Fund         acc -> Fund         <| Accessor.map f acc     
+               | Winner       acc -> Winner       <| Accessor.map f acc       
+     
+     type FreeDA<'a> =
+          | PureDA of 'a
+          | FreeDA of (Interval * AbstractDataAcces<FreeDA<'a>>)
+     
+     let rec bind (f : 'a -> FreeDA<'b>) (m : FreeDA<'a>) : FreeDA<'b> =
+          match m with
+          | PureDA x             -> f x
+          | FreeDA (interval, t) -> FreeDA (interval, AbstractDataAcces.map (bind f) t)
+     
+     let ret = PureDA
+     
+     let join (mm : FreeDA<FreeDA<'a>>) : FreeDA<'a> =
+          bind id mm
+     
+     let map (f : 'a -> 'b) (m : FreeDA<'a>) : FreeDA<'b> =
+          bind (f >> ret) m
+     
+     let liftADA (interval : Interval) (acc : AbstractDataAcces<'a>) : FreeDA<'a> =
+         FreeDA (interval, AbstractDataAcces.map PureDA acc)
+     
+     module Lift =
+          let Tip          interval = Tip          >> liftADA interval
+          let PKBalance    interval = PKBalance    >> liftADA interval
+          let PKAllocation interval = PKAllocation >> liftADA interval
+          let VoteUtxo     interval = VoteUtxo     >> liftADA interval
+          let PKPayout     interval = PKPayout     >> liftADA interval
+          let Fund         interval = Fund         >> liftADA interval
+          let Winner       interval = Winner       >> liftADA interval
+     
+     type FreeDABuilder() =
+     
+          member this.Bind(m : FreeDA<'a>, f : 'a -> FreeDA<'b>) : FreeDA<'b> =
+               bind f m
+          
+          member this.Return(x : 'a) : FreeDA<'a> =
+               PureDA x
+          
+          member this.ReturnFrom(x : FreeDA<'a>) : FreeDA<'a> =
+               x
+
+          member this.Combine(m1 : FreeDA<'a>, m2 : FreeDA<'a>) : FreeDA<'a> =
+               m1 |> bind (fun _ -> m2)
+          
+          member this.Zero() : FreeDA<unit> =
+               PureDA ()
+
+          member this.Delay(f) : FreeDA<'a> =
+               f ()
+     
+     let freeDA = new FreeDABuilder()
+     
+     module Operators =
+     
+          let inline (=<<) f m = bind f m
+          
+          let inline (>>=) x f = bind f x
+          
+          let inline (<*>) f m = f >>= (fun f -> m >>= (fun x -> f x))
+          
+          let inline (<*|) f m = (<*>) f m
+          
+          let inline (|*>) m f = f <*> m
+          
+          let inline (<!>) f m = map f m
+          
+          let inline (<@|) f m = map f m
+          
+          let inline (|@>) m f = map f m
+          
+          let inline (>=>) f g = fun x -> f x >>= g
+          
+          let inline (<=<) g f = fun x -> f x >>= g
