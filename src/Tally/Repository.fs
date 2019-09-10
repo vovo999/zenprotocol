@@ -19,91 +19,70 @@ open Zen.Types.Data
 open System.Text
 open Tally.DataAccess
 open Tally.DataAccess
+open FSharpx.Option
 
 module S = Serialization
 module CryptoSig = Crypto.Signature
 
 let empty =
     {
-        blockHash = Hash.zero
+        blockHash   = Hash.zero
         blockNumber = 0ul
     }
 
 let option = FSharpx.Option.maybe
 
-let private getBytes str = Encoding.Default.GetBytes (str : string)
-
-let private getFinalBlockNumber (chainParams: ChainParameters) blockNumber =
+let private lastIntervalBlock (chainParams: ChainParameters) blockNumber =
     chainParams.intervalLength * CGP.getInterval chainParams blockNumber
 
 let private getFund dataAccess session interval =
-        match DataAccess.Fund.tryGet dataAccess session interval with
-        | Some fund -> fund
-        | None -> Map.empty
+    match DataAccess.Fund.tryGet dataAccess session interval with
+    | Some fund -> fund
+    | None -> Map.empty
 
 let private getVoteUtxo dataAccess session interval =
-        VoteUtxoSet.tryGet dataAccess session interval
-        |> Option.defaultValue
-               (VoteUtxoSet.tryGet dataAccess session (interval - 1u)
-                |> Option.defaultValue Map.empty)
-
-//let getOutputs dataAccess session view mode addresses : PointedOutput list =
-//    DataAccess.AddressOutpoints.get view dataAccess session addresses
-//    |> DataAccess.OutpointOutputs.get view dataAccess session
-//    |> List.choose (fun dbOutput ->
-//        if mode <> UnspentOnly || dbOutput.status = Unspent then
-//            Some (dbOutput.outpoint, { spend = dbOutput.spend; lock = dbOutput.lock })
-//        else
-//            None)
-//
-//let getBalance dataAccess session view mode addresses =
-//    getOutputs dataAccess session view mode addresses
-//    |> List.fold (fun balance (_,output) ->
-//        match Map.tryFind output.spend.asset balance with
-//        | Some amount -> Map.add output.spend.asset (amount + output.spend.amount) balance
-//        | None -> Map.add output.spend.asset output.spend.amount balance
-//    ) Map.empty
+    VoteUtxoSet.tryGet dataAccess session interval
+    |> Option.defaultWith (fun () ->
+        VoteUtxoSet.tryGet dataAccess session (interval - 1u)
+        |> Option.defaultValue Map.empty)
 
 let getUTXO dataAccess session interval outpoint =
     getVoteUtxo dataAccess session interval
     |> Map.tryFind outpoint
     |> Option.defaultValue NoOutput
 
-let private findPayoutTx chainParams transactions =
+let private findPayoutTx (chainParams : ChainParameters) (transactions : Transaction list) : Transaction option =
+    
+    let cgpCW = function | ContractWitness cw -> cw.contractId = chainParams.cgpContractId | _ -> false
+    
     transactions
-    |> List.map (fun (tx, _) -> tx )
-    |> List.tryFind (fun tx ->
-        tx.witnesses
-        |> List.filter (fun witness ->
-            match witness with
-            | ContractWitness cw when cw.contractId = chainParams.cgpContractId -> true
-            | _ -> false)
-        |> List.isEmpty
-        |> not)
+    |> List.filter ( fun tx -> List.exists cgpCW tx.witnesses )
+    |> List.tryHead
 
 let private setFund total spend fund =
-    if total <= 0UL then
+    if total = 0UL then
         Map.remove spend.asset fund
     else
         Map.add spend.asset total fund
 
-
+// Payout is deducted from the fund
 let private handlePayout dataAccess session interval chainParams payoutTx adding fund =
     let op = if adding then (+) else (-)
     payoutTx.outputs
     |> List.iter (function
-        |{lock=Contract cId;spend=_} when cId = chainParams.cgpContractId ->
-            ()
-        |{lock=PK _; spend=spend}
-        |{lock=Contract _; spend=spend} ->
+        | {lock=Contract cId; spend=_} when cId = chainParams.cgpContractId ->
+            () // Payout output to the CGP itself doesn't affect the fund.
+        | {lock=PK _; spend=spend}
+        | {lock=Contract _; spend=spend} ->
             match Map.tryFind spend.asset fund with
                 | Some amount ->
                     setFund (op amount spend.amount) spend fund
-                | None -> fund
+                | None -> failwithf "there should not be this tx" //TODO: change when handling the reorgs
             |> Fund.put dataAccess session interval
         | _ ->
             ())
 
+// Donations and coinbase allocations are added to the fund 
 let private handleFund dataAccess session interval adding output chainParams (fund:Fund) =
     let op = if adding then (+) else (-)
     match output.lock with
@@ -116,47 +95,42 @@ let private handleFund dataAccess session interval adding output chainParams (fu
                 |> Fund.put dataAccess session interval
             | _ ->
                 ()
-let mapPkOutputs validMaturity (utxos: Map<Outpoint,OutputStatus>) =
+
+let private getUnspentOutputs : Outpoint * OutputStatus -> Output option =
+    function
+    | _, Unspent output -> Some output
+    | _                 -> None
+
+let getSpendablePKs validMaturity (utxos: Map<Outpoint,OutputStatus>) =
     utxos
     |> Map.toList
-    |> List.choose (function
-            | _, Unspent output -> Some output
-            | _ -> None )
+    |> List.choose getUnspentOutputs
     |> List.choose
            (function
-            | {lock=PK pkHash; spend= {asset=asset;amount=amount}} ->
-                Some (pkHash,asset,amount)
-            | {lock= Coinbase (blockNumber,pkHash); spend= {asset=asset;amount=amount}} when validMaturity >= blockNumber ->
-                Some (pkHash,asset,amount)
+            | {lock=PK pkHash; spend={asset=asset;amount=amount}} when asset = Asset.Zen ->
+                Some (pkHash,amount)
+            | {lock=Coinbase (blockNumber,pkHash); spend={asset=asset;amount=amount}} when asset = Asset.Zen && validMaturity >= blockNumber ->
+                Some (pkHash,amount)
             | _ ->
-                None)
+                None
+            )
 
 let private addPKBalance dataAccess session interval chainParams =
-    
-    
-    let pkBalance =
-        PKBalance.tryGet dataAccess session interval
-        |> Option.defaultValue
-               (PKBalance.tryGet dataAccess session (interval - 1u)
-                |> Option.defaultValue Map.empty)
-    
     let getAmount address =
-        pkBalance
+        PKBalance.tryGet dataAccess session interval
+        |> Option.defaultValue Map.empty
         |> Map.tryFind address
         |> Option.defaultValue 0UL
-        
-    let validMaturity = (CGP.getSnapshotBlock chainParams interval) - chainParams.coinbaseMaturity
+
+    // Used to check that the coinbase tx are considered as unspent and unspendable beacuse of their maturity
+    let validMaturity = CGP.getSnapshotBlock chainParams interval - chainParams.coinbaseMaturity
     
-    let voteUtxo = 
-        VoteUtxoSet.tryGet dataAccess session interval
-        |> Option.defaultValue Map.empty
-    
-    voteUtxo
-    |> mapPkOutputs validMaturity
-    |> List.iter (fun (address,_,amount) ->
+    getVoteUtxo dataAccess session interval
+    |> getSpendablePKs validMaturity
+    |> List.iter (fun (pkHash, amount) ->
         PKBalance.tryGet dataAccess session interval
         |> Option.defaultValue Map.empty
-        |> Map.add address ((getAmount address) + amount)
+        |> Map.add pkHash ((getAmount pkHash) + amount)
         |> PKBalance.put dataAccess session interval)
 
 let addAllocation dataAccess session interval pk allocation =
@@ -177,17 +151,11 @@ let addPayout dataAccess session interval pk payout =
     | Some _ -> map
     | None -> Map.add pk payout map
 
-let getValidBallot chainParam blockNumber command  =
-        let readCommand = S.Ballot.deserialize command
+let getValidBallot chainParam blockNumber ballotId  =
         
         let interval = CGP.getInterval chainParam blockNumber
         
         let serialize data = Data.serialize data |> FsBech32.Base16.encode
-        
-        let ballotId =
-            command
-            |> FsBech32.Base16.encode
-            |> ZFStar.fsToFstString
         
         let serBallot = serialize (String ballotId) 
         
@@ -195,51 +163,48 @@ let getValidBallot chainParam blockNumber command  =
         
         let concat = String.concat "" [serInterval; serBallot]
         
-        let hashSerializeData = Hash.compute (getBytes concat)
+        let hashSerializeData = Hash.compute (Encoding.Default.GetBytes concat)
         
-        readCommand, hashSerializeData
+        hashSerializeData
     
-let getValidSignatures (sigs:Map<Prims.string,data>) (ballot:Ballot option) verifyMessage =
+let getValidSignatures (sigs : Map<Prims.string,data>) verifyMessage =
     option {
-        let! ballot = ballot
-        let! verifyMessage = verifyMessage
         
-        let fromSigs =
-            sigs
-            |> Map.toList
-            |> List.choose (fun (pkString,data) ->
-                let signature =
+        let extractPkSig (pkString, data) = option {
+                
+                let! publicKey =
+                    pkString
+                    |> ZFStar.fstToFsString
+                    |> PublicKey.fromString
+                
+                let! signature =
                     match data with
-                    | Signature sigs ->
-                        Some (Crypto.Signature sigs)
+                    | Signature sign ->
+                        Some (ZFStar.fstToFsSignature sign)
                     | _ ->
                         None
-                let publicKey = PublicKey.fromString (ZFStar.fstToFsString pkString)
-
-                publicKey |> Option.map (fun pk -> (pk, signature)) 
-                )
-            |> Map.ofList
-        let writeSigs (pk,signature) =
-            match signature with
-            | Some signature ->
-                match Crypto.verify pk signature verifyMessage with
-                | Valid ->
-                    Some (pk,signature)
-                | Invalid ->
-                    None
-            | _ ->
+                
+                return (publicKey, signature) 
+        }
+        
+        let verifySig (pk,signature) =
+            match Crypto.verify pk signature verifyMessage with
+            | Valid ->
+                Some (pk, signature)
+            | Invalid ->
                 None
-
+        
         let validSigs =
-            fromSigs
+            sigs
             |> Map.toSeq
-            |> Seq.choose writeSigs
+            |> Seq.choose (extractPkSig >=> verifySig)
             |> Map.ofSeq
 
-        return (ballot, validSigs)
+        return validSigs
     }
 
 let findVotes dataAccess session interval chainParams blockNumber transactions =
+    
     let setAllocation allocation sigs =
         sigs
         |> Map.iter (fun pk _ ->
@@ -251,54 +216,69 @@ let findVotes dataAccess session interval chainParams blockNumber transactions =
         |> Map.iter (fun pk _ ->
             addPayout dataAccess session interval pk payout
             |> PKPayout.put dataAccess session interval)
-    let findCommand command map =
-         match Map.tryFind (ZFStar.fsToFstString command) map with
-                    | Some (String commands) ->
-                        let encoded = (ZFStar.fstToFsString commands)
-                                      |> FsBech32.Base16.decode
-                                      |> Option.defaultValue ""B
-                        match getValidBallot chainParams blockNumber encoded with
-                        | Some (Allocation allocation),message when command = "Allocation" ->
-                            Some (Allocation allocation), Some message
-                        | Some (Payout (recipient,spends)),message when command = "Payout" ->
-                            Some (Payout (recipient,spends)),Some message
-                        | _ -> None, None 
-                    | _ -> None, None
-                    
-    let findSignature command map ballot message =
-        match Map.tryFind (ZFStar.fsToFstString command) map with
-                | Some (Collection (Dict (signatures,_))) ->
-                    match getValidSignatures signatures ballot message with
-                    |Some (Allocation allocation,sigs) ->
-                        setAllocation allocation sigs
-                    |Some (Payout (recipient,spends),sigs) ->
-                        setPayout (recipient,spends) sigs
-                    | _ -> ()
-                | _ -> ()
+    
+    let extractBallot command encBallot = option {
+        
+        let serBallot =
+            encBallot
+            |> ZFStar.fstToFsString
+            |> FsBech32.Base16.decode
+            |> Option.defaultValue ""B
+        
+        match! S.Ballot.deserialize serBallot with
+        | Allocation allocation      when command = "Allocation" ->
+            return Allocation allocation
+        | Payout (recipient, spends) when command = "Payout"     ->
+            return Payout (recipient, spends)
+        | _ ->
+            return! None
+    }
+    
+    let findSignature command dataMap message = 
+        dataMap
+        |> Map.tryFind (ZFStar.fsToFstString command) 
+        >>= function
+        | Collection (Dict (signatures,_)) ->
+            getValidSignatures signatures message
+        | _ ->
+            None
+    
+    let setBallot =
+        function
+        | Allocation allocation ->
+            setAllocation allocation
+        | Payout (recipient, spends) ->
+            setPayout (recipient,spends)
     
     let analize messageBody command =
-        messageBody
-        |> Option.iter (
-            function
-            | Collection (Dict (map,_)) ->
-                let ballot, message = 
-                   findCommand command map
-                findSignature "Signature" map ballot message
-            | _ -> ())
-
+        option {
+            let! map =
+                match messageBody with
+                | Some (Collection (Dict (map,_))) ->
+                    Some map
+                | _ ->
+                    None
+            let! data      = Map.tryFind (ZFStar.fsToFstString command) map
+            let! encBallot = match data with | String cmd -> Some cmd | _ -> None
+            let! ballot    = extractBallot command encBallot
+            let  hash      = getValidBallot chainParams blockNumber encBallot
+            let! sigMap    = findSignature "Signature" map hash
+            setBallot ballot sigMap
+        } |> ignore
+    
     transactions
     |> List.iter (fun (tx, _)  ->
         tx.witnesses
         |> List.iter (
             function
             | ContractWitness {contractId=contractId; command=command; messageBody=messageBody} ->
-            if contractId = chainParams.votingContractId then
-              analize messageBody command
+                if contractId = chainParams.votingContractId then
+                    analize messageBody command
             | _ -> ()))
 
 let getOutput getUTXO state input =
     UtxoSet.get getUTXO state input
-    |> function 
+    |> function
     | Unspent output ->
         Some output
     | NoOutput ->
@@ -331,7 +311,7 @@ let private handleTransaction getUTXO txHash tx set =
             ) set outputsWithIndex
 
     set
-                
+
 let private handleBlock getUTXO block map =
     block.transactions
     |> List.fold (fun map ex -> handleTransaction getUTXO ex.txHash ex.tx map ) map
@@ -349,9 +329,8 @@ let addBlock dataAccess session (chainParams:ChainParameters) blockHash block =
     else
         let blockNumber = block.header.blockNumber
         let interval = CGP.getInterval chainParams blockNumber
-        printfn "interval:%A" interval
+
         //get from data the current fund
-        let fund = getFund dataAccess session interval
         #if DEBUG
         
         #else
@@ -371,28 +350,29 @@ let addBlock dataAccess session (chainParams:ChainParameters) blockHash block =
         
         // map of PKHash to Balance or to Snapshot Balance
         if blockNumber <= CGP.getSnapshotBlock chainParams interval then 
-           addPKBalance dataAccess session interval chainParams 
+           addPKBalance dataAccess session interval chainParams
+                      
         // map of PK to Ballots
-        if block.header.blockNumber > CGP.getSnapshotBlock chainParams interval && block.header.blockNumber <= getFinalBlockNumber chainParams block.header.blockNumber then
+        if block.header.blockNumber > CGP.getSnapshotBlock chainParams interval && block.header.blockNumber <= lastIntervalBlock chainParams block.header.blockNumber then
             transactions
             |> findVotes dataAccess session interval chainParams block.header.blockNumber
 
         //add token to fund
+        //TODO: Change it to get ONLY the snapshot balance of the contract
         transactions
         |> List.iter (fun (tx,_) ->
             tx.outputs
-            |> List.iter (fun output -> handleFund dataAccess session interval true output chainParams fund)
+            |> List.iter (fun output -> handleFund dataAccess session interval true output chainParams (getFund dataAccess session interval))
         )
         //find payoutTx and remove from fund
+        //TODO: Change findPayoutTx
         if CGP.isPayoutBlock chainParams block.header.blockNumber then
             transactions
+            |> List.map fst
             |> findPayoutTx chainParams
-            |> function
-                |Some payoutTx ->
-                    handlePayout dataAccess session interval chainParams payoutTx false fund
-                |None ->
-                    ()
-
+            |> Option.map (fun payoutTx -> handlePayout dataAccess session interval chainParams payoutTx false (getFund dataAccess session interval))
+            |> Option.defaultValue ()
+        
         { account with blockNumber = block.header.blockNumber; blockHash = blockHash}
         |> DataAccess.Tip.put dataAccess session
 
@@ -422,13 +402,10 @@ let undoBlock dataAccess session chainParams blockHash block =
         //undo payout tx
         if CGP.isPayoutBlock chainParams block.header.blockNumber then
             block.transactions
-            |> List.map (fun ex -> ex.tx, ex.txHash)
+            |> List.map (fun ex -> ex.tx)
             |> findPayoutTx chainParams
-            |> function
-                |None ->
-                    ()
-                |Some payoutTx ->
-                    handlePayout dataAccess session interval chainParams payoutTx true fund
+            |> Option.map (fun payoutTx -> handlePayout dataAccess session interval chainParams payoutTx true fund)
+            |> Option.defaultValue ()
     
         {account with blockNumber = block.header.blockNumber - 1ul; blockHash = block.header.parent}
         |> DataAccess.Tip.put dataAccess session
