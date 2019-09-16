@@ -48,6 +48,7 @@
     <Compile Include="DataAccess.fs" />
     <Compile Include="FreeDataAccess.fs" />
     <Compile Include="View.fs" />
+    <Compile Include="VoteParser.fs" />
     <Compile Include="Repository.fs" />
     <Compile Include="Main.fs" />
   </ItemGroup>

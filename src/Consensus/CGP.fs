@@ -23,15 +23,13 @@ let isEmpty = (=) empty
 
 
 let getInterval chainParams blockNumber =
-    if blockNumber <> 0ul then (blockNumber - 1ul) / chainParams.intervalLength
-    else blockNumber
-    |> (+) 1u
+    if blockNumber > 0ul then
+        (blockNumber - 1ul) / chainParams.intervalLength + 1ul
+    else
+        1ul
 
 let getSnapshotBlock chainParams interval =
     (interval - 1u) * chainParams.intervalLength + chainParams.snapshot
-
-let private isIntervalBlock chainParams blockNumber =
-    (blockNumber - 1ul) % chainParams.intervalLength = 0ul
 
 let isPayoutBlock chainParams blockNumber =
     blockNumber % chainParams.intervalLength = chainParams.coinbaseMaturity
@@ -39,6 +37,8 @@ let isPayoutBlock chainParams blockNumber =
 let isTallyBlock chainParams blockNumber =
     blockNumber % chainParams.intervalLength = chainParams.coinbaseMaturity / 2ul
 
+let getLastIntervalBlock (chainParams: ChainParameters) (interval : uint32) : uint32 =
+    chainParams.intervalLength * interval
 
 let update (winner: Option<Winner>) cgp =
 

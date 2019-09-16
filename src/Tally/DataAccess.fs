@@ -24,6 +24,7 @@ type T = {
     tip: SingleValue<Tip>
     voteUtxo: Collection<Interval, VoteUtxo>
     dbVersion: SingleValue<int>
+    allocations: Collection<Interval, byte>
 }
 
 let createContext dataPath =
@@ -42,6 +43,7 @@ let init databaseContext =
     let tip = SingleValue.create databaseContext "blockchain" Tip.serialize Tip.deserialize
     let voteUtxo = Collection.create session "voteUtxo" VarInt.serialize VoteUtxo.serialize VoteUtxo.deserialize
     let dbVersion = SingleValue.create databaseContext "dbVersion" Version.serialize Version.deserialize
+    let allocations = Collection.create session "allocations" VarInt.serialize Allocation.serialize Allocation.deserialize
 
     match SingleValue.tryGet dbVersion session with
     | None ->
@@ -60,6 +62,7 @@ let init databaseContext =
         tip = tip
         voteUtxo = voteUtxo
         dbVersion = dbVersion
+        allocations = allocations
     }
 
     Session.commit session
@@ -139,3 +142,14 @@ module Winner =
     let truncate t = Collection.truncate t.winner
     
     let contains t = Collection.containsKey t.winner
+    
+module Allocation =
+    let get t = Collection.get t.allocations
+    
+    let tryGet t = Collection.tryGet t.allocations
+    let put t = Collection.put t.allocations
+    
+    let delete t = Collection.delete t.allocations
+    let truncate t = Collection.truncate t.allocations
+    
+    let contains t = Collection.containsKey t.allocations

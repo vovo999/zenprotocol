@@ -11,3 +11,7 @@ let (<|*|>) f g x = (f x, g x)
 let swap (x,y) = (y,x)
 
 let konst x _ = x
+
+let curry f x y = f (x,y)
+
+let uncurry f (x,y) = f x y
