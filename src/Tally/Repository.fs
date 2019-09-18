@@ -39,12 +39,12 @@ let empty =
 module DA =
     
     open FreeDataAccess
-    open Free
     open FreeDataAccess.Operators
+    open Access
     
-    type DataAccess<'a> = FreeDA<'a>
+    type DataAccess<'a> = FreeAccessor<'a>
     
-    let dataAccess = freeDA
+    let dataAccess = freeAccessor
     
     let private getVoteUtxo interval : DataAccess<VoteUtxo> = dataAccess {
         match! VoteUtxo.tryGet interval with
