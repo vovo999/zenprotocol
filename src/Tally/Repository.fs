@@ -59,24 +59,28 @@ module DA =
     }
     
     module Tip =
+        
         let update block blockHash =
             Tip.put {blockNumber = block.header.blockNumber; blockHash = blockHash}
     
     module PKBalance =
-        let private getSpendablePKs validMaturity (utxos: Map<Outpoint,OutputStatus>) : (Hash * uint64) list =
+        
+        let spendablePk validMaturity =
+            function
+            | Unspent {lock=PK pkHash; spend={asset=asset;amount=amount}}
+                when asset = Asset.Zen ->
+                    Some (pkHash,amount)
+            | Unspent {lock=Coinbase (blockNumber,pkHash); spend={asset=asset;amount=amount}}
+                when asset = Asset.Zen && validMaturity >= blockNumber ->
+                    Some (pkHash,amount)
+            | _ ->
+                    None
+        
+        let private getSpendablePks validMaturity (utxos: Map<Outpoint,OutputStatus>) : (Hash * uint64) list =
             utxos
             |> Map.toList
-            |> List.choose
-                   (function
-                    | _, Unspent {lock=PK pkHash; spend={asset=asset;amount=amount}}
-                            when asset = Asset.Zen ->
-                        Some (pkHash,amount)
-                    | _, Unspent {lock=Coinbase (blockNumber,pkHash); spend={asset=asset;amount=amount}}
-                        when asset = Asset.Zen && validMaturity >= blockNumber ->
-                        Some (pkHash,amount)
-                    | _ ->
-                        None
-                    )
+            |> List.map snd
+            |> List.choose (spendablePk validMaturity)
         
         let update interval chainParams = dataAccess {
             let getBalance address =
@@ -96,7 +100,7 @@ module DA =
             }
             
             return! getVoteUtxo interval
-            |@> getSpendablePKs validMaturity
+            |@> getSpendablePks validMaturity
             >>= iter updateBalance
         }        
     
@@ -114,7 +118,7 @@ module DA =
                 
                 match Map.tryFind pk map with
                 | Some _ -> return map
-                | None -> return  Map.add pk x map
+                | None   -> return Map.add pk x map
             }
         
         let private set
@@ -264,10 +268,10 @@ module DA =
             
             let incomingSpends {lock=lock; spend=spend} =
                 match lock with
-                    | Contract cId when cId = chainParams.cgpContractId ->
-                        Some spend
-                    | _ ->
-                        None
+                | Contract cId when cId = chainParams.cgpContractId ->
+                    Some spend
+                | _ ->
+                    None
             
             tx.outputs
             |> List.choose incomingSpends
@@ -325,16 +329,16 @@ module DA =
                     coinbaseCorrectionCap =
                         chainParams.allocationCorrectionCap
                         |> Tally.allocationToCoinbaseRatio
-                        
+                    
                     lowerCoinbaseBound =
                         chainParams.upperAllocationBound
                         |> Tally.allocationToCoinbaseRatio
-                        
+                    
                     lastCoinbaseRatio =
                         lastAllocation
                         |> Option.defaultValue 0uy
                         |> Tally.allocationToCoinbaseRatio
-                        
+                    
                     lastFund =
                         lastFund
                 }
@@ -373,7 +377,6 @@ module DA =
                 if CGP.isTallyBlock chainParams blockNumber then
                     do! Winner    .update interval chainParams
         }
-    
 
 let sync dataAccess session chainParams tipBlockHash (tipHeader:BlockHeader) (getHeader:Hash -> BlockHeader) (getBlock:Hash -> Block) =
     let account = DataAccess.Tip.get dataAccess session
