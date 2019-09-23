@@ -40,6 +40,12 @@ let isTallyBlock chainParams blockNumber =
 let getLastIntervalBlock (chainParams: ChainParameters) (interval : uint32) : uint32 =
     chainParams.intervalLength * interval
 
+let isLastIntervalBlock (chainParams: ChainParameters) blockNumber : bool =
+    blockNumber
+    |> getInterval chainParams
+    |> getLastIntervalBlock chainParams
+    |> (=) blockNumber
+
 let update (winner: Option<Winner>) cgp =
 
     let cgp = 

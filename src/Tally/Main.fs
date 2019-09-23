@@ -15,6 +15,11 @@ open Tally
 let private getFirstBlockNumber chainParams interval =
     (chainParams * (interval-1u))
 
+// I'm terribly sorry about that...
+let mutable private MUT_reset_trigger = false
+let private setTrigger()   = MUT_reset_trigger <- true
+let private resetTrigger() = MUT_reset_trigger <- false
+let private isTriggered() = MUT_reset_trigger
 
 let private syncInterval (chainParams:ChainParameters) dataAccess session client interval =
     match Blockchain.getBlockByNumber client (getFirstBlockNumber chainParams.intervalLength interval) with
@@ -42,15 +47,17 @@ let commandHandler (chainParams:ChainParameters) client command dataAccess sessi
 
 let tallyUpdate chainParams dataAccess session client block =
     if CGP.isTallyBlock chainParams block.header.blockNumber then
+        resetTrigger()
         syncInterval chainParams dataAccess session client (CGP.getInterval chainParams block.header.blockNumber)
     else
         View.empty
         
 let setWinner chainParams dataAccess session client block =
-    if CGP.isPayoutBlock chainParams block.header.blockNumber then
+    let blockNumber = block.header.blockNumber
+    if CGP.isPayoutBlock chainParams blockNumber then
         let interval =
-            CGP.getInterval chainParams block.header.blockNumber
-        let view = syncInterval chainParams dataAccess session client (CGP.getInterval chainParams block.header.blockNumber)
+            CGP.getInterval chainParams blockNumber
+        let view = syncInterval chainParams dataAccess session client (CGP.getInterval chainParams blockNumber)
         let winner = View.getWinner dataAccess session interval view
         Tally.setCGP client winner 
 
@@ -60,7 +67,12 @@ let eventHandler chainParams client event dataAccess session view =
         setWinner chainParams dataAccess session client block
         tallyUpdate chainParams dataAccess session client block
     | BlockRemoved (_,block) ->
-        Repository.reset dataAccess session
+        let blockNumber = block.header.blockNumber
+        if CGP.isTallyBlock chainParams (blockNumber + 1u) then
+            setTrigger()
+        elif CGP.isLastIntervalBlock chainParams blockNumber && isTriggered() then
+            resetTrigger()
+            Repository.resetInterval dataAccess session chainParams block
         setWinner chainParams dataAccess session client block
         tallyUpdate chainParams dataAccess session client block
     | _ ->

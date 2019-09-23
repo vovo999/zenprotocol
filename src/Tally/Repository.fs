@@ -378,6 +378,18 @@ module DA =
                     do! Winner    .update interval chainParams
         }
 
+    let resetInterval chainParams block : DataAccess<unit> = dataAccess {
+        let interval = CGP.getInterval chainParams block.header.blockNumber
+        do! Tip          .update block (Block.hash block.header)
+        do! VoteUtxo     .delete interval
+        do! PKBalance    .delete interval
+        do! Fund         .delete interval
+        do! PKAllocation .delete interval
+        do! PKPayout     .delete interval
+        do! Winner       .delete interval
+    }
+        
+
 let sync dataAccess session chainParams tipBlockHash (tipHeader:BlockHeader) (getHeader:Hash -> BlockHeader) (getBlock:Hash -> Block) =
     let account = DataAccess.Tip.get dataAccess session
     // Find the fork block of the account and the blockchain, logging actions
@@ -404,8 +416,8 @@ let sync dataAccess session chainParams tipBlockHash (tipHeader:BlockHeader) (ge
 
     sortedActions
     |> FreeDataAccess.iter (function
-        //| (Undo, block, hash) -> undoBlock   chainParams hash block
-        | (Add, block, hash) -> DA.addBlock chainParams block hash
+        | (Undo , _     , _   ) -> failwith "impossible - the tally never undo blocks"
+        | (Add  , block , hash) -> DA.addBlock chainParams block hash
         )
     |> FreeDataAccess.Compute.compute dataAccess session
 
@@ -413,10 +425,16 @@ let addBlock dataAccess session chainParams blockHash block =
     DA.addBlock chainParams block blockHash
     |> FreeDataAccess.Compute.compute dataAccess session
 
+let resetInterval dataAccess session chainParams block =
+    block
+    |> DA.resetInterval chainParams
+    |> FreeDataAccess.Compute.compute dataAccess session
+
 let init dataAccess session =
     DataAccess.Tip.put dataAccess session empty
 
 let reset dataAccess session =
+    
     DataAccess.Tip.put dataAccess session empty
 
     DataAccess.VoteUtxoSet.truncate dataAccess session
