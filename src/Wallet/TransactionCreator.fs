@@ -19,7 +19,8 @@ module Cost = Zen.Cost.Realized
 type ActiveContract = Messaging.Services.Blockchain.ActiveContract
 
 [<Literal>]
-let rlimit = 2723280u
+//let rlimit = 2723280u
+let rlimit = 8000000u
 
 let result = new ResultBuilder<string>()
 

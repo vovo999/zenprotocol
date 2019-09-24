@@ -206,7 +206,7 @@ let recordHints code moduleName =
         elaborate originalFile elaboratedFile
         |> Result.bind (fun _ ->
             fstar oDir elaboratedFile [
-                 "--z3rlimit";(2723280u * 2u).ToString()
+                 "--z3rlimit";(2723280u * 3u).ToString()
                  "--use_cached_modules"
                  "--record_hints"
                  ]
